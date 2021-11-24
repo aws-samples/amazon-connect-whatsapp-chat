@@ -1,0 +1,71 @@
+{
+  "Comment": "Dialer Thread Activities",
+  "StartAt": "GetAvailAgents",
+  "States": {
+    "GetAvailAgents": {
+      "Comment": "Check available agents in queue",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "dialingError"
+        }
+      ],
+      "Parameters": {
+        "FunctionName": "${getAvailableAgents}"
+      },
+      "Next": "areAgentsAvailable",
+      "ResultPath": "$.availAgents",
+      "ResultSelector": {
+        "value.$": "$.Payload.availAgents"
+      }
+    },
+    "areAgentsAvailable": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.availAgents.value",
+          "NumericGreaterThan": 0,
+          "Next": "Dial"
+        }
+      ],
+      "Default": "waitForAgents"
+    },
+    "waitForAgents": {
+      "Comment": "If agents are not available wait 5 seconds before retry",
+      "Type": "Wait",
+      "Seconds": 5,
+      "Next": "GetAvailAgents"
+    },
+    "Dial": {
+      "Comment": "Place call",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "dialingError"
+        }
+      ],
+      "Parameters": {
+        "FunctionName": "${dial}",
+        "Payload": {
+          "contacts.$": "$.contacts"
+        }
+      },
+      "Next": "DialComplete",
+      "ResultPath": null
+    },
+    "DialComplete": {
+      "Type": "Succeed"
+    },
+    "dialingError": {
+      "Type": "Fail"
+    }
+  }
+}
