@@ -49,6 +49,7 @@ SAM can save this information if you plan un doing changes, answer Y when prompt
 
 ### Application Configuration
 1. Open the Secrets Manager console and edit the ConnectChatConfig secret. Complete the following parameters:
+
 | Key | Description | 
 |:--------:|:-------------:|
 |CONNECT_INSTANCE_ID | Amazon Connect Instance ID | 
@@ -63,7 +64,7 @@ SAM can save this information if you plan un doing changes, answer Y when prompt
 2. Copy the endpoint URL and add it to the Twilio console configuration for whatsapp messages (Messaging -> Settings -> WhatsApp Sandbox settings for sandbox testing ). 
 3. Append the following paths.
 
-|  | Description | 
+| Event Name | Description | 
 |:--------:|:-------------:|
 |WHEN A MESSAGE COMES IN | [ENDPOINT URL] **/twilio** | 
 |STATUS CALLBACK URL |[ENDPOINT URL] **/twilio/callback**| 
