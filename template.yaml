@@ -173,6 +173,38 @@ Resources:
                   - states:StopExecution
                 Resource: 
                   - '*'
+  encryptionkey:
+    Type: AWS::KMS::Key
+    Properties: 
+      Description: Connect Messages Encryption Key
+      Enabled: True
+      EnableKeyRotation: True
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyPolicy:
+        Version: 2012-10-17
+        Statement:
+          - Sid: "Enable IAM User Permissions"
+            Effect: "Allow"
+            Principal: 
+              AWS:
+                Fn::Join: 
+                - ""
+                - 
+                  - "arn:aws:iam::"
+                  - Ref: "AWS::AccountId"
+                  - ":root"
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: "Enable Services Access"
+            Effect: "Allow"
+            Principal: 
+              Service:
+                - 'connect.amazonaws.com'
+            Action:
+              - 'kms:GenerateDataKey*'
+              - 'kms:Decrypt'
+            Resource: '*'
+
 
   messageAPI:
     Type: 'AWS::ApiGateway::RestApi'
@@ -360,7 +392,7 @@ Resources:
     Type: AWS::SNS::Topic
     Properties: 
       DisplayName: 'Amazon Connect Chat Message Exchange'
-
+      KmsMasterKeyId: !Ref encryptionkey
 
   ConnectChatConfig:
     Type: AWS::SecretsManager::Secret
