@@ -29,7 +29,7 @@ The project includes a cloud formation template with a Serverless Application Mo
 ## Deploy the solution
 1. Clone this repo.
 
-`git clone https://github.com/aws-samples/amazon-connect-whatsapp-integration`
+`git clone https://github.com/aws-samples/amazon-connect-whatsapp-chat`
 
 2. Build the solution with SAM.
 
