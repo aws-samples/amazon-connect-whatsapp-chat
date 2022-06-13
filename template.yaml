@@ -117,7 +117,8 @@ Resources:
               -
                 Effect: Allow
                 Action:
-                  - 'connect:*'
+                  - 'connect:StartChatContact'
+                  - 'connect:StartContactStreaming'
                 Resource:
                   - '*'
         -
