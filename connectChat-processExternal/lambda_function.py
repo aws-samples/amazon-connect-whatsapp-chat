@@ -2,8 +2,10 @@
 import json
 import boto3
 import os
-#from datetime import datetime
+import sys
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
+import requests
 
 ACTIVE_CONNNECTIONS= os.environ['ACTIVE_CONNNECTIONS']
 participant_client = boto3.client('connectparticipant')
@@ -24,30 +26,48 @@ def lambda_handler(event, context):
     message = event['Body']
     name = event['ProfileName']
     customerID = event['From']
-
-
+    phone = customerID.split(':')[-1]
+    
     contact = get_contact(customerID, ACTIVE_CONNNECTIONS, 'custID-index')
-
+    if('MediaContentType0' in event):
+        fileName = event['MessageSid'] + '.' +event['MediaContentType0'].split('/')[1]
     if(contact):
         print("Found contact, sending message")
         try:
-            send_message_response = send_message(message, name, contact['connectionToken'])
+            ##Handle media content
+            if('MediaContentType0' in event):
+                attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],contact['connectionToken'])
+            else:
+                send_message_response = send_message(message, phone, contact['connectionToken'])
         except:
             print('Invalid Connection Token')
             print('Initiating connection')
-            start_chat_response = start_chat(message, name, CONTACT_FLOW_ID,INSTANCE_ID)
+            ##Handle media content
+            if('MediaContentType0' in event):
+                start_chat_response = start_chat('Attachment', phone, 'whatsApp',CONTACT_FLOW_ID,INSTANCE_ID)
+            else:
+                start_chat_response = start_chat(message, phone, 'whatsApp',CONTACT_FLOW_ID,INSTANCE_ID)
             start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
             create_connection_response = create_connection(start_chat_response['ParticipantToken'])
+
+            attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
             update_contact(customerID,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
-            #send_message_response = send_message(message, name, contact['connectionToken'])
+            
     else:
         print("Creating new contact")
-        start_chat_response = start_chat(message, name, CONTACT_FLOW_ID,INSTANCE_ID)
+        ##Handle media content
+        if('MediaContentType0' in event):
+            start_chat_response = start_chat('Attachment', phone, 'whatsApp', CONTACT_FLOW_ID, INSTANCE_ID)
+        else:
+            start_chat_response = start_chat(message, phone, 'whatsApp',CONTACT_FLOW_ID,INSTANCE_ID)
         start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
         create_connection_response = create_connection(start_chat_response['ParticipantToken'])
-        print("Create Connection")
+        
+        print("Creating Connection")
         print(create_connection_response)
-        #send_message_response = send_message(message, name, create_connection_response['ConnectionCredentials']['ConnectionToken'])
+
+        if('MediaContentType0' in event):
+            attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
         insert_contact(customerID,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
         
 
@@ -56,6 +76,53 @@ def lambda_handler(event, context):
         'body': json.dumps('All good!')
     }
     
+
+def attach_file(fileUrl,fileName,fileType,ConnectionToken):
+    
+    fileContents = download_file(fileUrl)
+    fileSize = sys.getsizeof(fileContents) - 33 ## Removing BYTES overhead
+    
+    try:
+        attachResponse = participant_client.start_attachment_upload(
+        ContentType=fileType,
+        AttachmentSizeInBytes=fileSize,
+        AttachmentName=fileName,
+        ConnectionToken=ConnectionToken
+        )
+    except ClientError as e:
+        print("Error while creating attachment")
+        print(e.response['Error'])
+        return None
+    else:
+        try:
+            filePostingResponse = requests.put(attachResponse['UploadMetadata']['Url'], 
+            data=fileContents,
+            headers=attachResponse['UploadMetadata']['HeadersToInclude'])
+        except ClientError as e:
+            print("Error while uploading")
+            print(e.response['Error'])
+        else:
+            print(filePostingResponse.status_code) 
+            verificationResponse = participant_client.complete_attachment_upload(
+                AttachmentIds=[attachResponse['AttachmentId']],
+                ConnectionToken=ConnectionToken)
+            print("Verification Response")
+            print(verificationResponse)
+
+def download_file(url):
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.content
+    else:
+        return None
+
+def upload_data_to_s3(bytes_data,bucket_name, s3_key):
+    s3_resource = boto3.resource('s3')
+    obj = s3_resource.Object(bucket_name, s3_key)
+    obj.put(ACL='private', Body=bytes_data)
+
+    s3_url = f"https://{bucket_name}.s3.amazonaws.com/{s3_key}"
+    return s3_url
 
 def send_message(message, name,connectionToken):
     
@@ -69,23 +136,23 @@ def send_message(message, name,connectionToken):
 
     
     
-def start_chat(message,name,contactFlow,connectID):
-
+def start_chat(message,phone,channel,contactFlow,connectID):
 
     start_chat_response = connect_client.start_chat_contact(
-        InstanceId=connectID,
-        ContactFlowId=contactFlow,
-        Attributes={
-            'Channel': "CHAT"
-        },
-        ParticipantDetails={
-            'DisplayName': name
-        },
-        InitialMessage={
-            'ContentType': 'text/plain',
-            'Content': message
-        }
-    )
+            InstanceId=connectID,
+            ContactFlowId=contactFlow,
+            Attributes={
+                'Channel': channel,
+                'phone':phone
+            },
+            ParticipantDetails={
+                'DisplayName': phone
+            },
+            InitialMessage={
+                'ContentType': 'text/plain',
+                'Content': message
+            }
+            )
     return start_chat_response
 
 def start_stream(connectID, ContactId, topicARN):
@@ -206,10 +273,6 @@ def get_config(secret_name):
     client = session.client(
         service_name='secretsmanager'
     )
-
-    # In this sample we only handle the specific exceptions for the 'GetSecretValue' API.
-    # See https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
-    # We rethrow the exception by default.
 
     try:
         get_secret_value_response = client.get_secret_value(
