@@ -15,6 +15,8 @@ def lambda_handler(event, context):
     print(event)
     for record in event['Records']:
         message = json.loads(record['Sns']['Message'])
+        print("Message")
+        print(message)
         message_type= message['Type']
         
         if(message_type == 'MESSAGE'):
@@ -26,12 +28,26 @@ def lambda_handler(event, context):
             MessageVisibility= message_attributes['MessageVisibility']['Value']
             if((MessageVisibility == 'CUSTOMER' or MessageVisibility == 'ALL')  and ParticipantRole != 'CUSTOMER' ):
                 print("contactID:" + str(contactID))
-                custID = get_custID(contactID, ACTIVE_CONNNECTIONS)
-                if(custID):
-                    print("custID:" + str(custID))
-                    send_message(custID,message_body)
+                customer = get_customer(contactID, ACTIVE_CONNNECTIONS)
+                if(customer):
+                    print("custID:" + str(customer))
+                    send_message(customer['custID'],message_body)
                 else:
                     print('Contact not found')
+        if(message_type == 'ATTACHMENT' and message['ParticipantRole'] != 'CUSTOMER'):
+            contactID = message['ContactId']
+            customer = get_customer(contactID, ACTIVE_CONNNECTIONS)
+            print("Retrieved customer")
+            print(customer)
+            for attachment in message['Attachments']:
+                print("AttachmentID")
+                print(attachment['AttachmentId'])
+                attachmentId = attachment['AttachmentId']
+                presignedUrl = get_signed_url(customer['connectionToken'],attachmentId)
+                print('Presigned URL')
+                print(presignedUrl)
+                send_attachment(customer['custID'],presignedUrl)
+        
         if(message_type == 'EVENT'):
             message_attributes = record['Sns']['MessageAttributes']
             message_type = message_attributes['ContentType']['Value']
@@ -40,6 +56,9 @@ def lambda_handler(event, context):
                 contactID = message['InitialContactId']
                 #custID = get_custID(contactID, ACTIVE_CONNNECTIONS)
                 remove_contactId(contactID,ACTIVE_CONNNECTIONS)
+
+            
+        
 
     response = {
                 "statusCode": 200,
@@ -52,10 +71,24 @@ def lambda_handler(event, context):
         
     return response
 
+def get_signed_url(connectionToken,attachment):
+    participant_client = boto3.client('connectparticipant')
+    try:
+        response = participant_client.get_attachment(
+            AttachmentId=attachment,
+            ConnectionToken=connectionToken
+            )
+    except ClientError as e:
+        print("Get attachment failed")
+        print(e.response['Error']['Code'])
+        return None
+    else:
+        return response['Url']
+
+
 def send_message(userContact,message):
     CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
-
 
     TWILIO_SID= connect_config['TWILIO_SID']
     TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
@@ -81,7 +114,31 @@ def send_message(userContact,message):
     else:
         pass;
 
-def get_custID(contactId, table):
+def send_attachment(userContact,url):
+    CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
+    connect_config=json.loads(get_config(CONFIG_PARAMETER))
+
+    TWILIO_SID= connect_config['TWILIO_SID']
+    TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
+    TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
+    
+    contactSplit = userContact.split(":")
+    contactPrefix = contactSplit[0]
+    
+    if(contactPrefix=='whatsapp'):
+        print("Create Twilio Client")
+        client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        print("Send attachment:" + str(TWILIO_FROM_NUMBER) +":" + userContact )
+        message = client.messages.create(
+                              #body='<MEDIA>',
+                              from_=TWILIO_FROM_NUMBER,
+                              media_url=url,
+                              to=str(userContact)
+                          )
+        print(message.sid)
+
+
+def get_customer(contactId, table):
     dynamodb = boto3.resource('dynamodb')
     
     table = dynamodb.Table(table)
@@ -89,11 +146,23 @@ def get_custID(contactId, table):
         KeyConditionExpression=Key('contactId').eq(contactId)
     )
     if(response['Items']):
-        custID =response['Items'][0]['custID']
+        customer =response['Items'][0]
     else:
-        custID=None
-    return custID
+        customer=None
+    return customer
 
+def get_connectionToken(contactId, table):
+    dynamodb = boto3.resource('dynamodb')
+    
+    table = dynamodb.Table(table)
+    response = table.query(
+        KeyConditionExpression=Key('contactId').eq(contactId)
+    )
+    if(response['Items']):
+        connectionToken =response['Items'][0]['connectionToken']
+    else:
+        connectionToken=None
+    return connectionToken
 
 
 def get_config(secret_name):
