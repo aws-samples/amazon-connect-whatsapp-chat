@@ -18,7 +18,7 @@ Resources:
   chatDependencies:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      ContentUri: chat-deps/
+      ContentUri: boto3-latest/
       CompatibleRuntimes:
         - python3.6
         - python3.7
