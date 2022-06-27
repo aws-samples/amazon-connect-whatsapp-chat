@@ -15,10 +15,10 @@ Globals:
 
 Resources:
 
-  boto3latest:
+  chatDependencies:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      ContentUri: boto3-latest/
+      ContentUri: chat-deps/
       CompatibleRuntimes:
         - python3.6
         - python3.7
@@ -74,11 +74,11 @@ Resources:
               -
                 Effect: Allow
                 Action:
-                  - 'logs:CreateLogGroup'
-                  - 'logs:CreateLogDelivery'
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                  - 'logs:GetLogEvents'
+                  - logs:CreateLogGroup
+                  - logs:CreateLogDelivery
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:GetLogEvents
                 Resource:
                   - '*'
         -
@@ -117,8 +117,12 @@ Resources:
               -
                 Effect: Allow
                 Action:
-                  - 'connect:StartChatContact'
-                  - 'connect:StartContactStreaming'
+                  - connect:UpdateContactAttributes
+                  - connect:StartChatContact
+                  - connect:StartTaskContact
+                  - connect:StartContactStreaming
+                  - connect:UpdateContact
+                  - connect:StopContact
                 Resource:
                   - '*'
         -
@@ -129,12 +133,12 @@ Resources:
               -
                 Effect: Allow
                 Action:
-                  - 'dynamodb:PutItem'
-                  - 'dynamodb:DeleteItem'
-                  - 'dynamodb:GetItem'
-                  - 'dynamodb:Scan'
-                  - 'dynamodb:Query'
-                  - 'dynamodb:UpdateItem'
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
                 Resource:
                   - !GetAtt ActiveConnections.Arn
                   - Fn::Join: [ '/', [ !GetAtt ActiveConnections.Arn, 'index/custID-index' ] ] 
@@ -146,8 +150,8 @@ Resources:
               -
                 Effect: Allow
                 Action:
-                  - 'sns:Publish'
-                  - 'sns:Subscribe'
+                  - sns:Publish
+                  - sns:Subscribe
                 Resource:
                   - !Ref messageExchange
         -
@@ -158,7 +162,7 @@ Resources:
               -
                 Effect: Allow
                 Action:
-                  - 'secretsManager:GetSecretValue'
+                  - secretsManager:GetSecretValue
                 Resource:
                   - !Ref ConnectChatConfig
         -
@@ -172,6 +176,19 @@ Resources:
                   - states:DescribeExecution
                   - states:StartExecution
                   - states:StopExecution
+                Resource: 
+                  - '*'
+        -
+          PolicyName: s3Access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
                 Resource: 
                   - '*'
   encryptionkey:
@@ -417,7 +434,7 @@ Resources:
           ACTIVE_CONNNECTIONS: !Ref ActiveConnections
           SNS_TOPIC: !Ref messageExchange
       Layers:
-        - !Ref boto3latest
+        - !Ref chatDependencies
 
 
   callbackDial:
@@ -467,6 +484,8 @@ Resources:
         Variables:
           CONFIG_PARAMETER: !Ref ConnectChatConfig
           ACTIVE_CONNNECTIONS: !Ref ActiveConnections
+      Layers:
+        - !Ref chatDependencies
 
       Events:
         incomingmessageSNS:
