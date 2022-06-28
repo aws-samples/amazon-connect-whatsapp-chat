@@ -36,11 +36,15 @@ def lambda_handler(event, context):
         try:
             ##Handle media content
             if('MediaContentType0' in event):
-                attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],contact['connectionToken'])
+                attachmentResponse = attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],contact['connectionToken'])
+                if(not attachmentResponse):
+                    print("Attachment was not successfull")
+                    send_message_response = send_message(event['MediaUrl0'], phone, contact['connectionToken'])
             else:
                 send_message_response = send_message(message, phone, contact['connectionToken'])
         except:
             print('Invalid Connection Token')
+            remove_contactId(contact['contactId'],ACTIVE_CONNNECTIONS)
             print('Initiating connection')
             ##Handle media content
             if('MediaContentType0' in event):
@@ -49,8 +53,11 @@ def lambda_handler(event, context):
                 start_chat_response = start_chat(message, phone, 'whatsApp',CONTACT_FLOW_ID,INSTANCE_ID)
             start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
             create_connection_response = create_connection(start_chat_response['ParticipantToken'])
-
-            attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
+            if('MediaContentType0' in event):
+                attachmentResponse = attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
+                if(not attachmentResponse):
+                    print("Attachment was not successfull")
+                    send_message_response = send_message(event['MediaUrl0'], phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
             update_contact(customerID,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
             
     else:
@@ -67,7 +74,10 @@ def lambda_handler(event, context):
         print(create_connection_response)
 
         if('MediaContentType0' in event):
-            attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
+            attachmentResponse = attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
+            if(not attachmentResponse):
+                print("Attachment was not successfull")
+                send_message_response = send_message(event['MediaUrl0'], phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
         insert_contact(customerID,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
         
 
@@ -91,8 +101,12 @@ def attach_file(fileUrl,fileName,fileType,ConnectionToken):
         )
     except ClientError as e:
         print("Error while creating attachment")
-        print(e.response['Error'])
-        return None
+        if(e.response['Error']['Code'] =='AccessDeniedException'):
+            print(e.response['Error'])
+            raise e
+        elif(e.response['Error']['Code'] =='ValidationException'):
+            print(e.response['Error'])
+            return None
     else:
         try:
             filePostingResponse = requests.put(attachResponse['UploadMetadata']['Url'], 
@@ -108,6 +122,7 @@ def attach_file(fileUrl,fileName,fileType,ConnectionToken):
                 ConnectionToken=ConnectionToken)
             print("Verification Response")
             print(verificationResponse)
+            return attachResponse['AttachmentId']
 
 def download_file(url):
     response = requests.get(url)
@@ -252,14 +267,14 @@ def get_contact(custID, table, index):
     return contactId
 
 
-def remove_contactId(phoneNumber,table):
+def remove_contactId(contactId,table):
     
     table = dynamodb.Table(table)
 
     try:
         response = table.delete_item(
             Key={
-                'phoneNumber': phoneNumber
+                'contactId': contactId
             }
         )
     except Exception as e:
