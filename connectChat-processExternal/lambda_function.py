@@ -115,6 +115,7 @@ def attach_file(fileUrl,fileName,fileType,ConnectionToken):
         except ClientError as e:
             print("Error while uploading")
             print(e.response['Error'])
+            raise e
         else:
             print(filePostingResponse.status_code) 
             verificationResponse = participant_client.complete_attachment_upload(
