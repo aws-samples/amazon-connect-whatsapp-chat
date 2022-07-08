@@ -5,7 +5,7 @@ Description: Amazon Connect chat integration.
 Globals:
   Function:
     Timeout: 60
-    MemorySize: 128
+    MemorySize: 256
     Runtime: python3.8
   Api:
     Cors:
@@ -18,7 +18,7 @@ Resources:
   chatDependencies:
     Type: AWS::Serverless::LayerVersion
     Properties:
-      ContentUri: boto3-latest/
+      ContentUri: dependencies/
       CompatibleRuntimes:
         - python3.6
         - python3.7
@@ -234,12 +234,47 @@ Resources:
       Description: API used for sending messages from external services.
       FailOnWarnings: true
 
-  APILambdaPermission:
+  TwilioLambdaPermission:
     Type: 'AWS::Lambda::Permission'
     Properties:
       Action: 'lambda:invokeFunction'
       FunctionName: !GetAtt 
-        - processExternalMessage
+        - twilioIncomingMessage
+        - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Join 
+        - ''
+        - - 'arn:aws:execute-api:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':'
+          - !Ref messageAPI
+          - /*
+
+  HealthcheckLambdaPermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:invokeFunction'
+      FunctionName: !GetAtt 
+        - healthcheck
+        - Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Join 
+        - ''
+        - - 'arn:aws:execute-api:'
+          - !Ref 'AWS::Region'
+          - ':'
+          - !Ref 'AWS::AccountId'
+          - ':'
+          - !Ref messageAPI
+          - /*
+  CloudAPILambdaPermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:invokeFunction'
+      FunctionName: !GetAtt 
+        - cloudAPIIncomingMessage
         - Arn
       Principal: apigateway.amazonaws.com
       SourceArn: !Join 
@@ -290,6 +325,8 @@ Resources:
       - ApiGatewayAccount
       - TwilioMessageRequest
       - TwilioCallbackRequest
+      - WhatsCloudAPIMessage
+      - WhatsCloudAPIHealthcheck
     Type: 'AWS::ApiGateway::Stage'
     Properties:
       DeploymentId: !Ref ApiDeployment
@@ -306,9 +343,11 @@ Resources:
     DependsOn:
       - TwilioMessageRequest
       - TwilioCallbackRequest
+      - WhatsCloudAPIMessage
+      - WhatsCloudAPIHealthcheck
     Properties:
       RestApiId: !Ref messageAPI
-      StageName: Dummy
+      StageName: Dev
 
   TwilioMessageResource:
     Type: 'AWS::ApiGateway::Resource'
@@ -319,7 +358,7 @@ Resources:
         - RootResourceId
       PathPart: twilio
   TwilioMessageRequest:
-    DependsOn: APILambdaPermission
+    DependsOn: TwilioLambdaPermission
     Type: 'AWS::ApiGateway::Method'
     Properties:
       AuthorizationType: NONE
@@ -333,7 +372,7 @@ Resources:
             - !Ref 'AWS::Region'
             - ':lambda:path/2015-03-31/functions/'
             - !GetAtt 
-              - processExternalMessage
+              - twilioIncomingMessage
               - Arn
             - /invocations
         IntegrationResponses:
@@ -403,9 +442,114 @@ Resources:
       RestApiId: !Ref messageAPI
       MethodResponses:
         - StatusCode: 204
-  
 
-                  
+  WhatsCloudAPIResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      RestApiId: !Ref messageAPI
+      ParentId: !GetAtt 
+        - messageAPI
+        - RootResourceId
+      PathPart: cloudapi
+      
+  WhatsCloudAPIHealthcheck:
+    DependsOn: HealthcheckLambdaPermission
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            text/html: Empty
+          ResponseParameters:
+            method.response.header.Content-Type: true
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Join 
+          - ''
+          - - 'arn:aws:apigateway:'
+            - !Ref 'AWS::Region'
+            - ':lambda:path/2015-03-31/functions/'
+            - !GetAtt 
+              - healthcheck
+              - Arn
+            - /invocations
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Content-Type: "'text/html'"
+            ResponseTemplates:
+              text/html: !Join
+                - ""
+                - - "$input.path('$')"
+                  - ""
+        PassthroughBehavior: 'WHEN_NO_TEMPLATES'
+        RequestTemplates:
+          application/json: !Join 
+            - ""
+            - - "#set($allParams = $input.params())\n"
+              - "{\n"
+              - "\"params\" : { \n"
+              - "#foreach($type in $allParams.keySet())\n"
+              - "    #set($params = $allParams.get($type))\n"
+              - "\"$type\" : { \n"
+              - "   #foreach($paramName in $params.keySet())\n"
+              - "\"$paramName\" : \"$util.escapeJavaScript($params.get($paramName))\"\n"
+              - "      #if($foreach.hasNext),#end\n"
+              - "   #end\n"
+              - "}\n"
+              - "      #if($foreach.hasNext),#end\n"
+              - "   #end\n"
+              - "}\n"
+              - "}"
+
+      RequestParameters:
+        method.request.querystring.name: false
+      ResourceId: !Ref WhatsCloudAPIResource
+      RestApiId: !Ref messageAPI
+
+  WhatsCloudAPIMessage:
+    DependsOn: CloudAPILambdaPermission
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: POST
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Join 
+          - ''
+          - - 'arn:aws:apigateway:'
+            - !Ref 'AWS::Region'
+            - ':lambda:path/2015-03-31/functions/'
+            - !GetAtt 
+              - cloudAPIIncomingMessage
+              - Arn
+            - /invocations
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Content-Type: "'text/html'"
+        PassthroughBehavior: 'WHEN_NO_TEMPLATES'
+        RequestTemplates:
+          application/json: !Join 
+            - ''
+            - - "{\n"
+              - "  \"body-json\": $input.json('$')\n"
+              - "}\n"
+      RequestParameters:
+        method.request.querystring.name: false
+      ResourceId: !Ref WhatsCloudAPIResource
+      RestApiId: !Ref messageAPI
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            text/html: Empty
+          ResponseParameters:
+            method.response.header.Content-Type: true
+            
   messageExchange:
     Type: AWS::SNS::Topic
     Properties: 
@@ -415,18 +559,32 @@ Resources:
   ConnectChatConfig:
     Type: AWS::SecretsManager::Secret
     Properties:
-      SecretString: '{"CONNECT_INSTANCE_ID":"Replace with instance ID data","CONNECT_QUEUE_ID":"Replace with queue ID data","CONTACT_FLOW_ID":"Replace with contact flow ID data","TWILIO_SID":"Replace with account SID","TWILIO_AUTH_TOKEN":"Replace with authentication token","TWILIO_FROM_NUMBER":"Replace with phone -FROM- number"}'
+      SecretString: '{"CONNECT_INSTANCE_ID":"Replace with instance ID data","CONNECT_QUEUE_ID":"Replace with queue ID data","CONTACT_FLOW_ID":"Replace with contact flow ID data","TWILIO_SID":"Replace with account SID","TWILIO_AUTH_TOKEN":"Replace with authentication token","TWILIO_FROM_NUMBER":"Replace with phone -FROM- number","WHATS_TOKEN":"Replace with whatsApp phone Token","WHATS_PHONE_ID":"Replace with whatsApp phone ID","WHATS_VERIFICATION_TOKEN":"Replace with WhatsApp verification Token"}'
       Tags:
         -
           Key: AppName
           Value: ConnectChat
 
 
-  processExternalMessage:
+  twilioIncomingMessage:
     Type: AWS::Serverless::Function 
     Properties:
       Role: !GetAtt ConnectChatLambdaRole.Arn
-      CodeUri: connectChat-processExternal/
+      CodeUri: twilio-processExternal/
+      Handler: lambda_function.lambda_handler
+      Environment:
+        Variables:
+          CONFIG_PARAMETER: !Ref ConnectChatConfig
+          ACTIVE_CONNNECTIONS: !Ref ActiveConnections
+          SNS_TOPIC: !Ref messageExchange
+      Layers:
+        - !Ref chatDependencies
+        
+  cloudAPIIncomingMessage:
+    Type: AWS::Serverless::Function 
+    Properties:
+      Role: !GetAtt ConnectChatLambdaRole.Arn
+      CodeUri: cloudapi-processExternal/
       Handler: lambda_function.lambda_handler
       Environment:
         Variables:
@@ -436,6 +594,17 @@ Resources:
       Layers:
         - !Ref chatDependencies
 
+  healthcheck:
+    Type: AWS::Serverless::Function 
+    Properties:
+      Role: !GetAtt ConnectChatLambdaRole.Arn
+      CodeUri: healthcheck/
+      Handler: lambda_function.lambda_handler
+      Environment:
+        Variables:
+          CONFIG_PARAMETER: !Ref ConnectChatConfig
+      Layers:
+        - !Ref chatDependencies
 
   callbackDial:
     Type: AWS::Serverless::StateMachine
@@ -478,7 +647,7 @@ Resources:
     Type: AWS::Serverless::Function 
     Properties:
       Role: !GetAtt ConnectChatLambdaRole.Arn
-      CodeUri: connectChat-processConnectMessage/
+      CodeUri: processConnectMessage/
       Handler: lambda_function.lambda_handler
       Environment: 
         Variables:

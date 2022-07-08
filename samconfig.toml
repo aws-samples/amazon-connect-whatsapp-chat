@@ -1,0 +1,10 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "connect-whats-ultimate"
+s3_bucket = "sam-artif-vpsb-us-west-2"
+s3_prefix = "connect-whats-ultimate"
+region = "us-west-2"
+capabilities = "CAPABILITY_IAM"
+image_repositories = []

@@ -2,14 +2,13 @@
 import json
 import boto3
 import os
-import base64
+import requests
 from twilio.rest import Client as TwilioClient
 
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 
 ACTIVE_CONNNECTIONS= os.environ['ACTIVE_CONNNECTIONS']
-
 
 def lambda_handler(event, context):
     print(event)
@@ -31,7 +30,10 @@ def lambda_handler(event, context):
                 customer = get_customer(contactID, ACTIVE_CONNNECTIONS)
                 if(customer):
                     print("custID:" + str(customer))
-                    send_message(customer['custID'],message_body)
+
+                    channel = customer['channel']
+                    phone = customer['custID']
+                    send_message(phone,channel,message_body)
                 else:
                     print('Contact not found')
         if(message_type == 'ATTACHMENT' and message['ParticipantRole'] != 'CUSTOMER'):
@@ -43,10 +45,12 @@ def lambda_handler(event, context):
                 print("AttachmentID")
                 print(attachment['AttachmentId'])
                 attachmentId = attachment['AttachmentId']
+                attachmentName = attachment['AttachmentName']
+                contentType = attachment['ContentType']
                 presignedUrl = get_signed_url(customer['connectionToken'],attachmentId)
                 print('Presigned URL')
                 print(presignedUrl)
-                send_attachment(customer['custID'],presignedUrl)
+                send_attachment(customer['custID'],customer['channel'],presignedUrl,attachmentName,contentType)
         
         if(message_type == 'EVENT'):
             message_attributes = record['Sns']['MessageAttributes']
@@ -54,7 +58,6 @@ def lambda_handler(event, context):
             if(message_type == 'application/vnd.amazonaws.connect.event.participant.left' or message_type == 'application/vnd.amazonaws.connect.event.chat.ended'):
                 print('participant left')
                 contactID = message['InitialContactId']
-                #custID = get_custID(contactID, ACTIVE_CONNNECTIONS)
                 remove_contactId(contactID,ACTIVE_CONNNECTIONS)
 
             
@@ -86,18 +89,14 @@ def get_signed_url(connectionToken,attachment):
         return response['Url']
 
 
-def send_message(userContact,message):
+def send_message(userContact,channel,message):
     CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
-
-    TWILIO_SID= connect_config['TWILIO_SID']
-    TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
-    TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
     
-    contactSplit = userContact.split(":")
-    contactPrefix = contactSplit[0]
-    
-    if(contactPrefix=='whatsapp'):
+    if(channel=='twilio'):
+        TWILIO_SID= connect_config['TWILIO_SID']
+        TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
+        TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
         print("Create Twilio Client")
         client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
         print("Send message:"+ str(message) + ":" + str(TWILIO_FROM_NUMBER) +":" + userContact )
@@ -107,36 +106,58 @@ def send_message(userContact,message):
                               to=str(userContact)
                           )
         print(message.sid)
-    elif(contactPrefix=='sms'):
-        pass;
-    elif(contactPrefix=='facebook'):
+    elif(channel=='whatsapp'):
+        WHATS_PHONE_ID = connect_config['WHATS_PHONE_ID']
+        WHATS_TOKEN = connect_config['WHATS_TOKEN']
+        URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
+        headers = {'Authorization': WHATS_TOKEN, 'Content-Type': 'application/json'}
+        data = { "messaging_product": "whatsapp", "to": normalize_phone(userContact), "type": "text", "text": json.dumps({ "preview_url": False, "body": message}) }
+        print("Sending")
+        print(data)
+        response = requests.post(URL, headers=headers, data=data)
+        responsejson = response.json()
+        print("Responses: "+ str(responsejson))
+        
+    elif(channel=='facebook'):
         pass;
     else:
         pass;
 
-def send_attachment(userContact,url):
+def send_attachment(userContact,channel,url,fileName,mimeType):
     CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
-
-    TWILIO_SID= connect_config['TWILIO_SID']
-    TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
-    TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
     
-    contactSplit = userContact.split(":")
-    contactPrefix = contactSplit[0]
-    
-    if(contactPrefix=='whatsapp'):
+    if(channel=='twilio'):
+        TWILIO_SID= connect_config['TWILIO_SID']
+        TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
+        TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
         print("Create Twilio Client")
         client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
         print("Send attachment:" + str(TWILIO_FROM_NUMBER) +":" + userContact )
         message = client.messages.create(
-                              #body='<MEDIA>',
                               from_=TWILIO_FROM_NUMBER,
                               media_url=url,
                               to=str(userContact)
                           )
         print(message.sid)
-
+    elif(channel=='whatsapp'):
+        WHATS_PHONE_ID = connect_config['WHATS_PHONE_ID']
+        WHATS_TOKEN = connect_config['WHATS_TOKEN']
+        URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
+        headers = {'Authorization': WHATS_TOKEN}
+        fileType = get_file_category(mimeType)
+        data = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": normalize_phone(userContact),
+            "type": fileType,
+            fileType: json.dumps({"link" : url})
+            }
+        print("Sending")
+        print(data)
+        response = requests.post(URL, headers=headers, data=data)
+        responsejson = response.json()
+        print("Responses: "+ str(responsejson))
 
 def get_customer(contactId, table):
     dynamodb = boto3.resource('dynamodb')
@@ -207,7 +228,7 @@ def get_config(secret_name):
         if 'SecretString' in get_secret_value_response:
             secret = get_secret_value_response['SecretString']
         else:
-            secret = base64.b64decode(get_secret_value_response['SecretBinary'])
+            secret = None
     return secret
 
 
@@ -234,3 +255,20 @@ def remove_contactId(contactID,table):
         print (e)
     else:
         return response
+
+def normalize_phone(phone):
+    ### Country specific changes required on phone numbers
+    
+    ### Mexico specific, remove 1 after 52
+    if(phone[1:3]=='52' and phone[3] == '1'):
+        normalized = phone[1:3] + phone[4:]
+    else:
+        normalized  = phone[1:]
+    return normalized
+    ### End Mexico specific
+def get_file_category(mimeType):
+    ## Possible {AUDIO, CONTACTS, DOCUMENT, IMAGE, TEXT, TEMPLATE, VIDEO, STICKER, LOCATION, INTERACTIVE, REACTION}
+    if('application' in mimeType): return 'document'
+    elif('image' in mimeType): return 'image' 
+    elif('audio' in mimeType): return 'audio'
+    elif('video' in mimeType): return 'video'

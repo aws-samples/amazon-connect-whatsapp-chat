@@ -10,7 +10,9 @@ The project includes a cloud formation template with a Serverless Application Mo
 - getAvailableAgents. Check for available agents before placing calls.
 - manualCallback. Initiate the calling process based on user request.
 - processConnectMessage. Process Amazon Connect responses.
-- processExternalMessage. Process incoming messages.
+- twilioIncomingMessage. Process incoming messages from Twilio.
+- cloudAPIIncomingMessage. Process incoming messages from Twilio.
+- healthcheck. Reply to whatsapp challenge.
 
 ### DynamoDB Table
 - ActiveConnections: Table holding the active connections.
@@ -47,19 +49,8 @@ if you get an error message about requirements you can try using containers.
 SAM will ask for the name of the application (use "whatsapp-to-connect" or something similar) as all resources will be grouped under it; Region and a confirmation prompt before deploying resources, enter y.
 SAM can save this information if you plan un doing changes, answer Y when prompted and accept the default environment and file name for the configuration.
 
-### Application Configuration
-1. Open the Secrets Manager console and edit the ConnectChatConfig secret. Complete the following parameters:
-
-| Key | Description | 
-|:--------:|:-------------:|
-|CONNECT_INSTANCE_ID | Amazon Connect Instance ID | 
-|CONTACT_FLOW_ID |Amazon Connect contact flow for chat messages| 
-|CONNECT_QUEUE_ID |Amazon Connect Queue for placing outbound calls | 
-|TWILIO_SID |Twilio Account SID| 
-|TWILIO_AUTH_TOKEN |Twilio Authentication Token| 
-|TWILIO_FROM_NUMBER |Twilio FROM number.|
-
 ### Twilio Configuration
+Twilio can be used as a broker for integrations.
 1. Open the applications section in the AWS console. Pick the name of the deployed application.
 2. Copy the endpoint URL and add it to the Twilio console configuration for whatsapp messages (Messaging -> Settings -> WhatsApp Sandbox settings for sandbox testing ). 
 3. Append the following paths.
@@ -69,6 +60,26 @@ SAM can save this information if you plan un doing changes, answer Y when prompt
 |WHEN A MESSAGE COMES IN | [ENDPOINT URL] **/twilio** | 
 |STATUS CALLBACK URL |[ENDPOINT URL] **/twilio/callback**| 
 
+### WhatsApp Cloud API Configuration
+WhatsApp Cloud API released in April 2022 allows direct connections. 
+1. Open the applications section in the AWS console. Pick the name of the deployed application.
+2. Copy the endpoint URL and add it to the webhook WhatsApp configuration, append the path  **/cloudapi**.
+3. Specify a token to be used for verification. Make a note of it.
+
+### Application Configuration
+1. Open the Secrets Manager console and edit the ConnectChatConfig secret. Complete the following parameters (only complete the parameters for the integration being used):
+
+| Key | Description | 
+|:--------:|:-------------:|
+|CONNECT_INSTANCE_ID | Amazon Connect Instance ID | 
+|CONTACT_FLOW_ID |Amazon Connect contact flow for chat messages| 
+|CONNECT_QUEUE_ID |Amazon Connect Queue for placing outbound calls | 
+|TWILIO_SID |Twilio Account SID| 
+|TWILIO_AUTH_TOKEN |Twilio Authentication Token| 
+|TWILIO_FROM_NUMBER |Twilio FROM number.|
+|WHATS_TOKEN| Token from WhatsApp.
+|WHATS_PHONE_ID| Phone ID (not number) from WhatsApp.
+|WHATS_VERIFICATION_TOKEN| Verification token defined as webhook setup.
 
 ## Usage
 1. Initiate conversations from whatsapp using the designated number (for instance the sandbox defined one).

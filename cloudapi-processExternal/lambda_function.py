@@ -1,4 +1,4 @@
-## process external message
+## process whatsApp Cloud API message
 import json
 import boto3
 import os
@@ -7,78 +7,101 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 import requests
 
+SUPPORTED_FILE_TYPES = ['text/csv','image/png','image/jpeg','application/pdf']
 ACTIVE_CONNNECTIONS= os.environ['ACTIVE_CONNNECTIONS']
+SNS_TOPIC = os.environ['SNS_TOPIC']
+CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
+
 participant_client = boto3.client('connectparticipant')
 connect_client = boto3.client('connect')
 dynamodb = boto3.resource('dynamodb')
 
 def lambda_handler(event, context):
-    print(str(event))
-    
-    CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
     INSTANCE_ID= connect_config['CONNECT_INSTANCE_ID']
     CONTACT_FLOW_ID= connect_config['CONTACT_FLOW_ID']
-    ACTIVE_CONNNECTIONS= os.environ['ACTIVE_CONNNECTIONS']
-    SNS_TOPIC = os.environ['SNS_TOPIC']
+    WHATS_TOKEN = connect_config['WHATS_TOKEN']
     
-    ##Twilio specific
-    message = event['Body']
-    name = event['ProfileName']
-    customerID = event['From']
-    phone = customerID.split(':')[-1]
+    print(str(event))
     
-    contact = get_contact(customerID, ACTIVE_CONNNECTIONS, 'custID-index')
-    if('MediaContentType0' in event):
-        fileName = event['MessageSid'] + '.' +event['MediaContentType0'].split('/')[1]
-    if(contact):
-        print("Found contact, sending message")
-        try:
-            ##Handle media content
-            if('MediaContentType0' in event):
-                attachmentResponse = attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],contact['connectionToken'])
-                if(not attachmentResponse):
-                    print("Attachment was not successfull")
-                    send_message_response = send_message(event['MediaUrl0'], phone, contact['connectionToken'])
-            else:
-                send_message_response = send_message(message, phone, contact['connectionToken'])
-        except:
-            print('Invalid Connection Token')
-            remove_contactId(contact['contactId'],ACTIVE_CONNNECTIONS)
-            print('Initiating connection')
-            ##Handle media content
-            if('MediaContentType0' in event):
-                start_chat_response = start_chat('Attachment', phone, 'whatsApp',CONTACT_FLOW_ID,INSTANCE_ID)
-            else:
-                start_chat_response = start_chat(message, phone, 'whatsApp',CONTACT_FLOW_ID,INSTANCE_ID)
-            start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
-            create_connection_response = create_connection(start_chat_response['ParticipantToken'])
-            if('MediaContentType0' in event):
-                attachmentResponse = attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
-                if(not attachmentResponse):
-                    print("Attachment was not successfull")
-                    send_message_response = send_message(event['MediaUrl0'], phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
-            update_contact(customerID,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
+    ##WhatsApp specific iterations.
+    for entry in event['body-json']['entry']:
+        print("Iterating entry")
+        print(entry)
+        for change in entry['changes']:
+            print("Iterating change")
+            print(change)
+            ## Skipping as no contact info was relevant.
+            if('contacts' not in change['value']['whatsapp_business_api_data']):
+                continue
             
-    else:
-        print("Creating new contact")
-        ##Handle media content
-        if('MediaContentType0' in event):
-            start_chat_response = start_chat('Attachment', phone, 'whatsApp', CONTACT_FLOW_ID, INSTANCE_ID)
-        else:
-            start_chat_response = start_chat(message, phone, 'whatsApp',CONTACT_FLOW_ID,INSTANCE_ID)
-        start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
-        create_connection_response = create_connection(start_chat_response['ParticipantToken'])
-        
-        print("Creating Connection")
-        print(create_connection_response)
+            systemNumber = change['value']['whatsapp_business_api_data']['phone_number_id']
+            name = change['value']['whatsapp_business_api_data']['contacts'][0]['profile']['name']
+            phone = '+' + str(change['value']['whatsapp_business_api_data']['messages'][0]['from'])
+            channel = 'whatsapp'
+            ##Define message type
+            messageType = change['value']['whatsapp_business_api_data']['messages'][0]['type']
+            if(messageType == 'text'):
+                message = change['value']['whatsapp_business_api_data']['messages'][0]['text']['body']
+            else:
+                message = 'Attachment'
+                fileType = change['value']['whatsapp_business_api_data']['messages'][0][messageType]['mime_type']
+                fileName = change['value']['whatsapp_business_api_data']['messages'][0][messageType].get('filename',phone + '.'+fileType.split("/")[1])
+                fileId = change['value']['whatsapp_business_api_data']['messages'][0][messageType]['id']
+                fileUrl = get_media_url(fileId,WHATS_TOKEN)
+                
+                print(fileType)
 
-        if('MediaContentType0' in event):
-            attachmentResponse = attach_file(event['MediaUrl0'],fileName,event['MediaContentType0'],create_connection_response['ConnectionCredentials']['ConnectionToken'])
-            if(not attachmentResponse):
-                print("Attachment was not successfull")
-                send_message_response = send_message(event['MediaUrl0'], phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
-        insert_contact(customerID,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
+            contact = get_contact(phone, ACTIVE_CONNNECTIONS, 'custID-index')
+            if(contact):
+                print("Found contact")
+                try:
+                    ##Handle media content
+                    if(messageType != 'text'):
+                        print("Attaching document")
+                        if(fileType in SUPPORTED_FILE_TYPES):
+                            print("Supported format")
+                            attachmentResponse = attach_file(fileUrl,WHATS_TOKEN,fileName,fileType,contact['connectionToken'])
+                        else:
+                            print("Not supported format")
+                            send_message_response = send_message(fileUrl, phone, contact['connectionToken'])
+                    else:
+                        send_message_response = send_message(message, phone, contact['connectionToken'])
+                except:
+                    print('Invalid Connection Token')
+                    remove_contactId(contact['contactId'],ACTIVE_CONNNECTIONS)
+                    print('Initiating connection')
+                    start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
+                    start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
+                    create_connection_response = create_connection(start_chat_response['ParticipantToken'])
+                    if(messageType != 'text'):
+                        print("Attaching document")
+                        if(fileType in SUPPORTED_FILE_TYPES):
+                            print("Supported format")
+                            attachmentResponse = attach_file(fileUrl,WHATS_TOKEN,fileName,fileType,create_connection_response['ConnectionCredentials']['ConnectionToken'])
+                        else:
+                            print("Not supported format")
+                            send_message_response = send_message(fileUrl, phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
+                    update_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
+                    
+            else:
+                print("Creating new contact")
+                start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
+                start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
+                create_connection_response = create_connection(start_chat_response['ParticipantToken'])
+                
+                print("Creating Connection")
+                print(create_connection_response)
+        
+                if(messageType != 'text'):
+                    print("Attaching document")
+                    if(fileType in SUPPORTED_FILE_TYPES):
+                        print("Supported format")
+                        attachmentResponse = attach_file(fileUrl,WHATS_TOKEN,fileName,fileType,create_connection_response['ConnectionCredentials']['ConnectionToken'])
+                    else:
+                        print("Not supported format")
+                        send_message_response = send_message(fileUrl, phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
+                insert_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
         
 
     return {
@@ -87,11 +110,11 @@ def lambda_handler(event, context):
     }
     
 
-def attach_file(fileUrl,fileName,fileType,ConnectionToken):
+def attach_file(fileUrl,whatsToken,fileName,fileType,ConnectionToken):
     
-    fileContents = download_file(fileUrl)
+    fileContents = get_whats_media(fileUrl,whatsToken)
     fileSize = sys.getsizeof(fileContents) - 33 ## Removing BYTES overhead
-    
+    print("Size downloaded:" + str(fileSize))
     try:
         attachResponse = participant_client.start_attachment_upload(
         ContentType=fileType,
@@ -192,7 +215,7 @@ def create_connection(ParticipantToken):
     return(create_connection_response)
     
     
-def insert_contact(custID,contactID,participantToken, connectionToken,name):
+def insert_contact(custID,channel,contactID,participantToken, connectionToken,name):
     
     table = dynamodb.Table(ACTIVE_CONNNECTIONS)
     
@@ -201,20 +224,22 @@ def insert_contact(custID,contactID,participantToken, connectionToken,name):
             Key={
                 'contactId': contactID
             }, 
-            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4,#item5 = :newState5 ',  
+            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4,#item5 = :newState5,#item6 = :newState6 ',  
             ExpressionAttributeNames={
                 '#item': 'custID',
                 '#item2': 'participantToken',
                 '#item3': 'connectionToken',
                 '#item4': 'name',
-                '#item5': 'initialContactID'
+                '#item5': 'initialContactID',
+                '#item6': 'channel'
             },
             ExpressionAttributeValues={
                 ':newState': custID,
                 ':newState2': participantToken,
                 ':newState3': connectionToken,
                 ':newState4': name,
-                ':newState5': contactID
+                ':newState5': contactID,
+                ':newState6': channel
             },
             ReturnValues="UPDATED_NEW")
         print (response)
@@ -224,7 +249,7 @@ def insert_contact(custID,contactID,participantToken, connectionToken,name):
         return response    
 
 
-def update_contact(custID,contactID,participantToken, connectionToken,name):
+def update_contact(custID,channel,contactID,participantToken, connectionToken,name):
     
     table = dynamodb.Table(ACTIVE_CONNNECTIONS)
     
@@ -233,18 +258,22 @@ def update_contact(custID,contactID,participantToken, connectionToken,name):
             Key={
                 'contactId': contactID
             }, 
-            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4',  
+            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4, #item5 = :newState5, #item6 = :newState6',  
             ExpressionAttributeNames={
                 '#item': 'custID',
                 '#item2': 'participantToken',
                 '#item3': 'connectionToken',
-                '#item4': 'name'
+                '#item4': 'name',
+                '#item5': 'initialContactID',
+                '#item6': 'channel'
             },
             ExpressionAttributeValues={
                 ':newState': custID,
                 ':newState2': participantToken,
                 ':newState3': connectionToken,
-                ':newState4': name
+                ':newState4': name,
+                ':newState5': contactID,
+                ':newState6': channel
             },
             ReturnValues="UPDATED_NEW")
         print (response)
@@ -321,5 +350,39 @@ def get_config(secret_name):
         if 'SecretString' in get_secret_value_response:
             secret = get_secret_value_response['SecretString']
         else:
-            secret = base64.b64decode(get_secret_value_response['SecretBinary'])
+            secret = None
     return secret
+
+def normalize_phone(phone):
+    ### Country specific changes required on phone numbers
+    
+    ### Mexico specific, remove 1 after 52
+    if(phone[0:2]=='52' and phone[2] == '1'):
+        normalized = phone[0:2] + phone[3:]
+    else:
+        normalized  = phone
+    return normalized
+    ### End Mexico specific
+
+def get_media_url(mediaId,whatsToken):
+
+    
+    URL = 'https://graph.facebook.com/v13.0/'+mediaId
+    headers = {'Authorization': whatsToken}
+    print("Requesting")
+    response = requests.get(URL, headers=headers)
+    responsejson = response.json()
+    if('url' in responsejson):
+        print("Responses: "+ str(responsejson))
+        return responsejson['url']
+    else:
+        print("No URL returned")
+        return None
+
+def get_whats_media(url,whatsToken):
+    headers = {'Authorization': whatsToken}
+    response = requests.get(url,headers=headers)
+    if response.status_code == 200:
+        return response.content
+    else:
+        return None
