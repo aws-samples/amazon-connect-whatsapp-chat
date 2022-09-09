@@ -53,6 +53,8 @@ def lambda_handler(event, context):
                 
                 print(fileType)
 
+            # TODOs: Put Chatbot Logic here
+
             contact = get_contact(phone, ACTIVE_CONNNECTIONS, 'custID-index')
             if(contact):
                 print("Found contact")
