@@ -7,6 +7,8 @@ Globals:
     Timeout: 60
     MemorySize: 256
     Runtime: python3.8
+    Layers:
+      - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPython:33
   Api:
     Cors:
       AllowMethods: "'*'"
@@ -190,6 +192,17 @@ Resources:
                   - s3:GetObject
                   - s3:ListBucket
                 Resource: 
+                  - '*'
+        -
+          PolicyName: lexAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - lex:RecognizeText
+                Resource:
                   - '*'
   encryptionkey:
     Type: AWS::KMS::Key

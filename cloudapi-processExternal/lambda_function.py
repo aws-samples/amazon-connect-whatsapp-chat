@@ -7,6 +7,12 @@ from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 import requests
 
+from aws_lambda_powertools import Logger
+from aws_lambda_powertools.logging.formatter import LambdaPowertoolsFormatter
+
+formatter = LambdaPowertoolsFormatter(utc=True, log_record_order=["message"])
+logger = Logger(service="WhatsAppCloudAPIMessage", logger_formatter=formatter)
+
 SUPPORTED_FILE_TYPES = ['text/csv','image/png','image/jpeg','application/pdf']
 ACTIVE_CONNNECTIONS= os.environ['ACTIVE_CONNNECTIONS']
 SNS_TOPIC = os.environ['SNS_TOPIC']
@@ -15,6 +21,7 @@ CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
 participant_client = boto3.client('connectparticipant')
 connect_client = boto3.client('connect')
 dynamodb = boto3.resource('dynamodb')
+lexv2_client = boto3.client('lexv2-runtime')
 
 def lambda_handler(event, context):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
@@ -52,7 +59,9 @@ def lambda_handler(event, context):
                 fileUrl = get_media_url(fileId,WHATS_TOKEN)
                 
                 print(fileType)
+                        
 
+            
             contact = get_contact(phone, ACTIVE_CONNNECTIONS, 'custID-index')
             if(contact):
                 print("Found contact")
@@ -86,6 +95,29 @@ def lambda_handler(event, context):
                     update_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
                     
             else:
+                # Lex v2 Runtime
+                response_lexv2 = lexv2_client.recognize_text(
+                    botId='OWAM89L3YD',
+                    botAliasId='TSTALIASID',
+                    localeId='en_US',
+                    sessionId=phone[1:],
+                    text=message,
+                )
+                intent_name = response_lexv2['sessionState']['intent']['name']
+                
+                if intent_name != 'HelpIntent':
+                    logger.info(response_lexv2)
+                    if 'messages' in response_lexv2:
+                        message = response_lexv2['messages'][0]['content']
+                    else:
+                        message = 'There seems to be an error. Please try again.'
+                    logger.info(message)
+                    send_message_channel(phone,channel,message)
+                    return {
+                        'statusCode': 200,
+                        'body': json.dumps('All good!')
+                    }
+
                 print("Creating new contact")
                 start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
                 start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
@@ -174,7 +206,49 @@ def send_message(message, name,connectionToken):
         
     return response    
 
+def send_message_channel(userContact,channel,message):
+    connect_config=json.loads(get_config(CONFIG_PARAMETER))
     
+    if(channel=='twilio'):
+        TWILIO_SID= connect_config['TWILIO_SID']
+        TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
+        TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
+        print("Create Twilio Client")
+        client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
+        print("Send message:"+ str(message) + ":" + str(TWILIO_FROM_NUMBER) +":" + userContact )
+        message = client.messages.create(
+                              body=str(message),
+                              from_=TWILIO_FROM_NUMBER,
+                              to=str(userContact)
+                          )
+        print(message.sid)
+    elif(channel=='whatsapp'):
+        WHATS_PHONE_ID = connect_config['WHATS_PHONE_ID']
+        WHATS_TOKEN = connect_config['WHATS_TOKEN']
+        URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
+        headers = {'Authorization': WHATS_TOKEN, 'Content-Type': 'application/json'}
+        data = { "messaging_product": "whatsapp", "to": normalize_phone_channel(userContact), "type": "text", "text": json.dumps({ "preview_url": False, "body": message}) }
+        print("Sending")
+        print(data)
+        response = requests.post(URL, headers=headers, data=data)
+        responsejson = response.json()
+        print("Responses: "+ str(responsejson))
+        
+    elif(channel=='facebook'):
+        pass;
+    else:
+        pass;
+
+def normalize_phone_channel(phone):
+    ### Country specific changes required on phone numbers
+    
+    ### Mexico specific, remove 1 after 52
+    if(phone[1:3]=='52' and phone[3] == '1'):
+        normalized = phone[1:3] + phone[4:]
+    else:
+        normalized  = phone[1:]
+    return normalized
+    ### End Mexico specific
     
 def start_chat(message,phone,channel,contactFlow,connectID):
 
