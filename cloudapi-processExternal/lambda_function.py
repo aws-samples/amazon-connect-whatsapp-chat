@@ -21,7 +21,7 @@ CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
 participant_client = boto3.client('connectparticipant')
 connect_client = boto3.client('connect')
 dynamodb = boto3.resource('dynamodb')
-lexv2_client = boto3.client('lexv2-runtime')
+lexv2_client = boto3.client('lexv2-runtime', region_name='ap-northeast-2')
 
 def lambda_handler(event, context):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
@@ -97,9 +97,9 @@ def lambda_handler(event, context):
             else:
                 # Lex v2 Runtime
                 response_lexv2 = lexv2_client.recognize_text(
-                    botId='OWAM89L3YD',
-                    botAliasId='TSTALIASID',
-                    localeId='en_US',
+                    botId='X4JAXPOEDV',
+                    botAliasId='KL9JK9ZBXP',
+                    localeId='zh_CN',
                     sessionId=phone[1:],
                     text=message,
                 )

@@ -572,7 +572,15 @@ Resources:
   ConnectChatConfig:
     Type: AWS::SecretsManager::Secret
     Properties:
-      SecretString: '{"CONNECT_INSTANCE_ID":"Replace with instance ID data","CONNECT_QUEUE_ID":"Replace with queue ID data","CONTACT_FLOW_ID":"Replace with contact flow ID data","TWILIO_SID":"Replace with account SID","TWILIO_AUTH_TOKEN":"Replace with authentication token","TWILIO_FROM_NUMBER":"Replace with phone -FROM- number","WHATS_TOKEN":"Replace with whatsApp phone Token","WHATS_PHONE_ID":"Replace with whatsApp phone ID","WHATS_VERIFICATION_TOKEN":"Replace with WhatsApp verification Token"}'
+      SecretString: '{"CONNECT_INSTANCE_ID":"replace",
+                    "CONNECT_QUEUE_ID":"BasicQueue",
+                    "CONTACT_FLOW_ID":"replace",
+                    "TWILIO_SID":"Replace with account SID",
+                    "TWILIO_AUTH_TOKEN":"Replace with authentication token",
+                    "TWILIO_FROM_NUMBER":"Replace with phone -FROM- number",
+                    "WHATS_TOKEN":"replace",
+                    "WHATS_PHONE_ID":"replace",
+                    "WHATS_VERIFICATION_TOKEN":"mzc-testing"}'
       Tags:
         -
           Key: AppName
