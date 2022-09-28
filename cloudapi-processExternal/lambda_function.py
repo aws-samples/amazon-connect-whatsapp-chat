@@ -22,6 +22,7 @@ participant_client = boto3.client('connectparticipant')
 connect_client = boto3.client('connect')
 dynamodb = boto3.resource('dynamodb')
 lexv2_client = boto3.client('lexv2-runtime', region_name='ap-northeast-2')
+translate = boto3.client('translate')
 
 def lambda_handler(event, context):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
@@ -95,13 +96,21 @@ def lambda_handler(event, context):
                     update_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
                     
             else:
+                # Amazon Translate message
+                response_translate = translate.translate_text(
+                    Text = message,
+                    SourceLanguageCode = 'auto',
+                    TargetLanguageCode = 'zh'
+                )
+                translated_message = response_translate['TranslatedText']
+                print(translated_message)
                 # Lex v2 Runtime
                 response_lexv2 = lexv2_client.recognize_text(
                     botId='X4JAXPOEDV',
                     botAliasId='KL9JK9ZBXP',
                     localeId='zh_CN',
                     sessionId=phone[1:],
-                    text=message,
+                    text=translated_message,
                 )
                 intent_name = response_lexv2['sessionState']['intent']['name']
                 

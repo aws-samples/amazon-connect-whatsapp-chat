@@ -110,6 +110,7 @@ Resources:
       ManagedPolicyArns: 
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole
+        - arn:aws:iam::aws:policy/TranslateFullAccess
       Policies:
         -
           PolicyName: ConnectStartContact
@@ -572,15 +573,15 @@ Resources:
   ConnectChatConfig:
     Type: AWS::SecretsManager::Secret
     Properties:
-      SecretString: '{"CONNECT_INSTANCE_ID":"replace",
+      SecretString: '{"CONNECT_INSTANCE_ID":"45d98483-6981-412a-a435-70732e981437",
                     "CONNECT_QUEUE_ID":"BasicQueue",
-                    "CONTACT_FLOW_ID":"replace",
+                    "CONTACT_FLOW_ID":"6ad268c9-57c8-4415-a3ad-3886513e6389",
                     "TWILIO_SID":"Replace with account SID",
                     "TWILIO_AUTH_TOKEN":"Replace with authentication token",
                     "TWILIO_FROM_NUMBER":"Replace with phone -FROM- number",
-                    "WHATS_TOKEN":"replace",
-                    "WHATS_PHONE_ID":"replace",
-                    "WHATS_VERIFICATION_TOKEN":"mzc-testing"}'
+                    "WHATS_TOKEN":"Bearer",
+                    "WHATS_PHONE_ID":"106475352208396",
+                    "WHATS_VERIFICATION_TOKEN":"mzc-test"}'
       Tags:
         -
           Key: AppName
