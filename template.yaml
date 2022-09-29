@@ -55,6 +55,18 @@ Resources:
           Projection:
             ProjectionType: "ALL"
 
+  # DynamoDB table to store item:
+  WhatsAppSessionTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: "test-connect-whatsapp-session"
+      PrimaryKey:
+        Name: SessionId
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+
   dialSFRole:
     Type: AWS::IAM::Role
     Properties:
@@ -144,6 +156,7 @@ Resources:
                   - dynamodb:UpdateItem
                 Resource:
                   - !GetAtt ActiveConnections.Arn
+                  - !GetAtt WhatsAppSessionTable.Arn
                   - Fn::Join: [ '/', [ !GetAtt ActiveConnections.Arn, 'index/custID-index' ] ] 
         -
           PolicyName: TopicAccess

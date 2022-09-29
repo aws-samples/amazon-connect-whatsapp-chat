@@ -1,11 +1,14 @@
 ## process whatsApp Cloud API message
+from ast import Eq
 import json
+from operator import eq
 import boto3
 import os
 import sys
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 import requests
+import re
 
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.logging.formatter import LambdaPowertoolsFormatter
@@ -21,8 +24,10 @@ CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
 participant_client = boto3.client('connectparticipant')
 connect_client = boto3.client('connect')
 dynamodb = boto3.resource('dynamodb')
+dynamodb_client = boto3.client('dynamodb')
 lexv2_client = boto3.client('lexv2-runtime', region_name='ap-northeast-2')
 translate = boto3.client('translate')
+lexv2_model = boto3.client('lexv2-models', region_name='ap-northeast-2')
 
 def lambda_handler(event, context):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
@@ -96,19 +101,38 @@ def lambda_handler(event, context):
                     update_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
                     
             else:
-                # Amazon Translate message
+                # Detect overall what language the message is using, adding a tag to it
+                chatbot_language = identify_Language(message)
+                if chatbot_language == "number":
+                    # function: check if prev localeId exists, if not then create
+                    chatbot_language = checkWhatsAppSession(phone[1:], chatbot_language)
+                    translate_language = checkWhatsAppSession(phone[1:], chatbot_language).split("_")[0]
+                else:
+                    translate_language = chatbot_language.split("_")[0]
+                    # function: check if prev localeId exists, if not then create
+                    processed_locale = checkWhatsAppSession(phone[1:], chatbot_language)
+                    print("Processed Locale: {}".format(processed_locale))
+
+                print("Translated Language: {}".format(translate_language))
+                print("Chatbot Language: {}".format(chatbot_language))
+            
+                
+                # Amazon Translate message to make mixed language into one
                 response_translate = translate.translate_text(
                     Text = message,
                     SourceLanguageCode = 'auto',
-                    TargetLanguageCode = 'zh'
+                    TargetLanguageCode = translate_language
                 )
+
                 translated_message = response_translate['TranslatedText']
                 print(translated_message)
-                # Lex v2 Runtime
+
+                # Lex v2 Runtime 
+                # If zh-CN --> zh_CN ; else en
                 response_lexv2 = lexv2_client.recognize_text(
                     botId='X4JAXPOEDV',
                     botAliasId='KL9JK9ZBXP',
-                    localeId='zh_CN',
+                    localeId=chatbot_language,
                     sessionId=phone[1:],
                     text=translated_message,
                 )
@@ -122,6 +146,9 @@ def lambda_handler(event, context):
                         message = 'There seems to be an error. Please try again.'
                     logger.info(message)
                     send_message_channel(phone,channel,message)
+                    if response_lexv2['sessionState']['dialogAction']['type'] == "Close":
+                        deleteWhatsAppSession(phone[1:])
+
                     return {
                         'statusCode': 200,
                         'body': json.dumps('All good!')
@@ -470,3 +497,81 @@ def get_whats_media(url,whatsToken):
         return response.content
     else:
         return None
+
+
+def identify_Language(message):
+    if re.search("[\u4e00-\u9FFF]", message):
+        TranslateLanguageCode = 'zh_CN'
+        return TranslateLanguageCode
+    elif re.search("[0-9]+", message):
+        TranslateLanguageCode = 'number'
+        return TranslateLanguageCode
+    else:
+        TranslateLanguageCode = 'en_US'
+        return TranslateLanguageCode
+        # change to else if show english, else return "all number ID"
+
+def checkWhatsAppSession(sessionId, chatbot_language): # get the previous localeId
+    # check if session exists
+    whatsapp_table_get = dynamodb_client.get_item(
+        TableName='test-connect-whatsapp-session',
+        Key= {
+            "SessionId": {
+                'S': sessionId #phone[1:]
+            }
+        }
+    )
+    
+    print("Get item result: {}".format(whatsapp_table_get))
+    try:
+        whatsapp_table_get["Item"]["localeId"]
+    except KeyError:
+        whatsapp_no_item = None
+        if  whatsapp_no_item == None:
+            #put item: Creates a new item, or replaces an old item with a new item.
+            print("Create new session")
+            whatsapp_table_put = dynamodb_client.put_item(
+            TableName="test-connect-whatsapp-session",
+            Item = {
+                "SessionId": {
+                    'S': sessionId #phone[1:]
+                },
+                "localeId": {
+                    'S': chatbot_language #translate_language
+                }
+            }
+            )
+        return chatbot_language
+    
+    print("Retrieved localId: {}".format(whatsapp_table_get["Item"]["localeId"]))
+    if chatbot_language == 'number':
+        prev_localeId = whatsapp_table_get["Item"]["localeId"]['S']
+        print("detect numeric input, localeId unchanged")
+        return prev_localeId
+    elif chatbot_language != whatsapp_table_get["Item"]["localeId"]['S']:
+        # Change sth here to make the sessions consistent
+        whatsapp_table_put = dynamodb_client.put_item(
+            TableName="test-connect-whatsapp-session",
+            Item = {
+                "SessionId": {
+                    'S': sessionId #phone[1:]
+                },
+                "localeId": {
+                    'S': chatbot_language #translate_language
+                }
+            }
+        )
+        print("Update localeId for chatbot: {}".format(chatbot_language))
+        return chatbot_language
+    else:
+        return chatbot_language
+
+def deleteWhatsAppSession(sessionId):
+    deleteResponse = dynamodb_client.delete_item(
+        TableName ='test-connect-whatsapp-session',
+        Key = {
+            "SessionId": {
+                'S': sessionId #phone[1:]
+            }
+        }
+    )
