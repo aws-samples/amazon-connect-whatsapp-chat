@@ -1,5 +1,5 @@
 # Amazon Connect Whatsapp Integration
-This project contains source code and supporting files for supporting whatsapp chat integration using Twilio as broker. Conversations can be escalated from chat to voice.
+This project contains source code and supporting files for supporting whatsapp chat direct integration using WhatsApp's Cloud API or Twilio as message broker. Conversations can be escalated from chat to voice.
 
 ## Deployed resources
 
@@ -76,10 +76,10 @@ WhatsApp Cloud API released in April 2022 allows direct connections.
 |CONNECT_QUEUE_ID |Amazon Connect Queue for placing outbound calls | 
 |TWILIO_SID |Twilio Account SID| 
 |TWILIO_AUTH_TOKEN |Twilio Authentication Token| 
-|TWILIO_FROM_NUMBER |Twilio FROM number.|
-|WHATS_TOKEN| Token from WhatsApp.
-|WHATS_PHONE_ID| Phone ID (not number) from WhatsApp.
-|WHATS_VERIFICATION_TOKEN| Verification token defined as webhook setup.
+|TWILIO_FROM_NUMBER |Twilio FROM number. Kept as reference for future modifications. Number will be taken from incoming messages.|
+|WHATS_TOKEN| Token from WhatsApp.|
+|WHATS_PHONE_ID| Phone ID (not number) from WhatsApp. Kept as reference for future modifications. Number ID will be taken from incoming messages.|
+|WHATS_VERIFICATION_TOKEN| Verification token defined as webhook setup.|
 
 ## Usage
 1. Initiate conversations from whatsapp using the designated number (for instance the sandbox defined one).

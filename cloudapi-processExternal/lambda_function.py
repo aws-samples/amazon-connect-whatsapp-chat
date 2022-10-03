@@ -20,11 +20,11 @@ def lambda_handler(event, context):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
     INSTANCE_ID= connect_config['CONNECT_INSTANCE_ID']
     CONTACT_FLOW_ID= connect_config['CONTACT_FLOW_ID']
-    WHATS_TOKEN = connect_config['WHATS_TOKEN']
+    WHATS_TOKEN = 'Bearer ' + connect_config['WHATS_TOKEN']
     
     print(str(event))
     
-    ##WhatsApp specific iterations.
+    ##WhatsApp specific iterations. 
     for entry in event['body-json']['entry']:
         print("Iterating entry")
         print(entry)
@@ -82,7 +82,7 @@ def lambda_handler(event, context):
                         else:
                             print("Not supported format")
                             send_message_response = send_message(fileUrl, phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
-                    update_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
+                    update_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name,systemNumber)
                     
             else:
                 print("Creating new contact")
@@ -101,7 +101,7 @@ def lambda_handler(event, context):
                     else:
                         print("Not supported format")
                         send_message_response = send_message(fileUrl, phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
-                insert_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
+                insert_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name, systemNumber)
         
 
     return {
@@ -215,7 +215,7 @@ def create_connection(ParticipantToken):
     return(create_connection_response)
     
     
-def insert_contact(custID,channel,contactID,participantToken, connectionToken,name):
+def insert_contact(custID,channel,contactID,participantToken, connectionToken,name,systemNumber):
     
     table = dynamodb.Table(ACTIVE_CONNNECTIONS)
     
@@ -224,14 +224,15 @@ def insert_contact(custID,channel,contactID,participantToken, connectionToken,na
             Key={
                 'contactId': contactID
             }, 
-            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4,#item5 = :newState5,#item6 = :newState6 ',  
+            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4,#item5 = :newState5,#item6 = :newState6, #item7 = :newState7',  
             ExpressionAttributeNames={
                 '#item': 'custID',
                 '#item2': 'participantToken',
                 '#item3': 'connectionToken',
                 '#item4': 'name',
                 '#item5': 'initialContactID',
-                '#item6': 'channel'
+                '#item6': 'channel',
+                '#item7': 'systemNumber'
             },
             ExpressionAttributeValues={
                 ':newState': custID,
@@ -239,7 +240,8 @@ def insert_contact(custID,channel,contactID,participantToken, connectionToken,na
                 ':newState3': connectionToken,
                 ':newState4': name,
                 ':newState5': contactID,
-                ':newState6': channel
+                ':newState6': channel,
+                ':newState7': systemNumber
             },
             ReturnValues="UPDATED_NEW")
         print (response)
@@ -249,7 +251,7 @@ def insert_contact(custID,channel,contactID,participantToken, connectionToken,na
         return response    
 
 
-def update_contact(custID,channel,contactID,participantToken, connectionToken,name):
+def update_contact(custID,channel,contactID,participantToken, connectionToken,name, systemNumber):
     
     table = dynamodb.Table(ACTIVE_CONNNECTIONS)
     
@@ -258,14 +260,15 @@ def update_contact(custID,channel,contactID,participantToken, connectionToken,na
             Key={
                 'contactId': contactID
             }, 
-            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4, #item5 = :newState5, #item6 = :newState6',  
+            UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4, #item5 = :newState5, #item6 = :newState6, #item7 = :newState7',  
             ExpressionAttributeNames={
                 '#item': 'custID',
                 '#item2': 'participantToken',
                 '#item3': 'connectionToken',
                 '#item4': 'name',
                 '#item5': 'initialContactID',
-                '#item6': 'channel'
+                '#item6': 'channel',
+                '#item7': 'systemNumber'
             },
             ExpressionAttributeValues={
                 ':newState': custID,
@@ -273,7 +276,8 @@ def update_contact(custID,channel,contactID,participantToken, connectionToken,na
                 ':newState3': connectionToken,
                 ':newState4': name,
                 ':newState5': contactID,
-                ':newState6': channel
+                ':newState6': channel,
+                ':newState7': systemNumber
             },
             ReturnValues="UPDATED_NEW")
         print (response)

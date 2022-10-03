@@ -33,7 +33,8 @@ def lambda_handler(event, context):
 
                     channel = customer['channel']
                     phone = customer['custID']
-                    send_message(phone,channel,message_body)
+                    systemNumber = customer['systemNumber']
+                    send_message(phone,channel,message_body,systemNumber)
                 else:
                     print('Contact not found')
         if(message_type == 'ATTACHMENT' and message['ParticipantRole'] != 'CUSTOMER'):
@@ -50,7 +51,7 @@ def lambda_handler(event, context):
                 presignedUrl = get_signed_url(customer['connectionToken'],attachmentId)
                 print('Presigned URL')
                 print(presignedUrl)
-                send_attachment(customer['custID'],customer['channel'],presignedUrl,attachmentName,contentType)
+                send_attachment(customer['custID'],customer['channel'],presignedUrl,attachmentName,contentType,systemNumber)
         
         if(message_type == 'EVENT'):
             message_attributes = record['Sns']['MessageAttributes']
@@ -89,7 +90,7 @@ def get_signed_url(connectionToken,attachment):
         return response['Url']
 
 
-def send_message(userContact,channel,message):
+def send_message(userContact,channel,message,systemNumber):
     CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
     
@@ -99,17 +100,17 @@ def send_message(userContact,channel,message):
         TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
         print("Create Twilio Client")
         client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
-        print("Send message:"+ str(message) + ":" + str(TWILIO_FROM_NUMBER) +":" + userContact )
+        print("Send message:"+ str(message) + ":" + str(systemNumber) +":" + userContact )
         message = client.messages.create(
                               body=str(message),
-                              from_=TWILIO_FROM_NUMBER,
+                              from_=systemNumber,
                               to=str(userContact)
                           )
         print(message.sid)
     elif(channel=='whatsapp'):
         WHATS_PHONE_ID = connect_config['WHATS_PHONE_ID']
-        WHATS_TOKEN = connect_config['WHATS_TOKEN']
-        URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
+        WHATS_TOKEN = 'Bearer ' + connect_config['WHATS_TOKEN']
+        URL = 'https://graph.facebook.com/v13.0/'+systemNumber+'/messages'
         headers = {'Authorization': WHATS_TOKEN, 'Content-Type': 'application/json'}
         data = { "messaging_product": "whatsapp", "to": normalize_phone(userContact), "type": "text", "text": json.dumps({ "preview_url": False, "body": message}) }
         print("Sending")
@@ -123,7 +124,7 @@ def send_message(userContact,channel,message):
     else:
         pass;
 
-def send_attachment(userContact,channel,url,fileName,mimeType):
+def send_attachment(userContact,channel,url,fileName,mimeType,systemNumber):
     CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
     
@@ -133,9 +134,9 @@ def send_attachment(userContact,channel,url,fileName,mimeType):
         TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
         print("Create Twilio Client")
         client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
-        print("Send attachment:" + str(TWILIO_FROM_NUMBER) +":" + userContact )
+        print("Send attachment:" + str(systemNumber) +":" + userContact )
         message = client.messages.create(
-                              from_=TWILIO_FROM_NUMBER,
+                              from_=systemNumber,
                               media_url=url,
                               to=str(userContact)
                           )
