@@ -1,4 +1,8 @@
 ## process whatsApp Cloud API message
+#To-Do:
+# 1. Mod chatbot confirmIntent
+# 2. Mode send_message_channel function (line 264)
+# 3. Coporate it with line 168
 from ast import Eq
 import json
 from operator import eq
@@ -55,8 +59,11 @@ def lambda_handler(event, context):
             channel = 'whatsapp'
             ##Define message type
             messageType = change['value']['messages'][0]['type']
+            print("message type: {}".format(messageType))
             if(messageType == 'text'):
                 message = change['value']['messages'][0]['text']['body']
+            elif (messageType == 'button'):
+                message = change['value']['messages'][0]["button"]["text"]
             else:
                 message = 'Attachment'
                 fileType = change['value']['messages'][0][messageType]['mime_type']
@@ -105,12 +112,13 @@ def lambda_handler(event, context):
                 chatbot_language = identify_Language(message)
                 if chatbot_language == "number":
                     # function: check if prev localeId exists, if not then create
-                    chatbot_language = checkWhatsAppSession(phone[1:], chatbot_language)
-                    translate_language = checkWhatsAppSession(phone[1:], chatbot_language).split("_")[0]
+                    chatbot_language = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"]
+                    translate_language = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"].split("_")[0]
                 else:
+                    chatbot_language = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"]
                     translate_language = chatbot_language.split("_")[0]
                     # function: check if prev localeId exists, if not then create
-                    processed_locale = checkWhatsAppSession(phone[1:], chatbot_language)
+                    processed_locale = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"]
                     print("Processed Locale: {}".format(processed_locale))
 
                 print("Translated Language: {}".format(translate_language))
@@ -141,11 +149,26 @@ def lambda_handler(event, context):
                 if intent_name != 'HelpIntent':
                     logger.info(response_lexv2)
                     if 'messages' in response_lexv2:
-                        message = response_lexv2['messages'][0]['content']
+                        message = response_lexv2['messages'][0]['content'] # Chatbot response
                     else:
                         message = 'There seems to be an error. Please try again.'
                     logger.info(message)
-                    send_message_channel(phone,channel,message)
+                    # ---Decide use response card or not---#
+                    sessionState = response_lexv2['sessionState']['dialogAction']['type']
+                    isConfirm = False
+                    if sessionState == "ElicitSlot":
+                        isConfirm = False
+                        slot2Elict = response_lexv2["sessionState"]["dialogAction"]["slotToElicit"]
+                        if (slot2Elict == "serviceOptions"):
+                            messageType = "template"
+                        else:
+                            messageType = "text"
+                    elif sessionState == "ConfirmIntent":
+                        isConfirm = True
+                        messageType = "template"
+                    
+                    # -------------------------------------#
+                    send_message_channel(phone,channel,message,messageType,isConfirm,chatbot_language, phone[1:], )
                     if response_lexv2['sessionState']['dialogAction']['type'] == "Close":
                         deleteWhatsAppSession(phone[1:])
 
@@ -242,8 +265,13 @@ def send_message(message, name,connectionToken):
         
     return response    
 
-def send_message_channel(userContact,channel,message):
+def send_message_channel(userContact,channel,message, messageType,isConfirm,chatbot_language, phoneNum):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
+
+    # if(chatbot_language == "zh_CN"):
+    #     language = "zh_HK"
+    # else:
+    #     language = "en_US"
     
     if(channel=='twilio'):
         TWILIO_SID= connect_config['TWILIO_SID']
@@ -258,12 +286,67 @@ def send_message_channel(userContact,channel,message):
                               to=str(userContact)
                           )
         print(message.sid)
+        
     elif(channel=='whatsapp'):
         WHATS_PHONE_ID = connect_config['WHATS_PHONE_ID']
         WHATS_TOKEN = connect_config['WHATS_TOKEN']
         URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
         headers = {'Authorization': WHATS_TOKEN, 'Content-Type': 'application/json'}
-        data = { "messaging_product": "whatsapp", "to": normalize_phone_channel(userContact), "type": "text", "text": json.dumps({ "preview_url": False, "body": message}) }
+        # Data
+        if(isConfirm == True):
+            data =  {"messaging_product": "whatsapp",
+                 "to": phoneNum,
+                 "type": messageType,
+                 "template": json.dumps({
+                    "name": "confirmintent",
+                    "language": {
+                    "code": chatbot_language
+                    },
+                    "components": [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {
+                                    "type": "text",
+                                    "text": "50000"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "6"
+                                }
+                            ]
+                        }
+                    ]
+                })
+                 }
+
+        elif(messageType == "text"):
+            data = { 
+                "messaging_product": "whatsapp",
+                "to": normalize_phone_channel(userContact),
+                "type": "text",
+                "text": json.dumps({ "preview_url": False, "body": message})
+            }
+        elif (messageType == "template"):
+            data = {    
+                        "messaging_product": "whatsapp",
+                        "to": phoneNum,
+                        "type": messageType,
+                        "template": json.dumps({
+                            "name": "serviceoptions",
+                            "language": {
+                            "code": chatbot_language
+                            }
+                        })
+                    }
+
+        else:
+            data = { 
+                "messaging_product": "whatsapp",
+                "to": normalize_phone_channel(userContact),
+                "type": "text",
+                "text": json.dumps({ "preview_url": False, "body": message})
+            }
         print("Sending")
         print(data)
         response = requests.post(URL, headers=headers, data=data)
@@ -285,7 +368,7 @@ def normalize_phone_channel(phone):
         normalized  = phone[1:]
     return normalized
     ### End Mexico specific
-    
+
 def start_chat(message,phone,channel,contactFlow,connectID):
 
     start_chat_response = connect_client.start_chat_contact(
@@ -541,13 +624,72 @@ def checkWhatsAppSession(sessionId, chatbot_language): # get the previous locale
                 }
             }
             )
-        return chatbot_language
+        return {
+            "isLocaleIdUpdated": False,
+            "chatbot_language": chatbot_language
+        }
+    
+    print("Retrieved localId: {}".format(whatsapp_table_get["Item"]["localeId"]))
+    localeId = whatsapp_table_get["Item"]["localeId"]['S']
+    return {
+            "isLocaleIdUpdated": False,
+            "chatbot_language": localeId
+        }
+
+def deleteWhatsAppSession(sessionId):
+    deleteResponse = dynamodb_client.delete_item(
+        TableName ='test-connect-whatsapp-session',
+        Key = {
+            "SessionId": {
+                'S': sessionId #phone[1:]
+            }
+        }
+    )
+
+'''
+def checkWhatsAppSession(sessionId, chatbot_language): # get the previous localeId
+    # check if session exists
+    whatsapp_table_get = dynamodb_client.get_item(
+        TableName='test-connect-whatsapp-session',
+        Key= {
+            "SessionId": {
+                'S': sessionId #phone[1:]
+            }
+        }
+    )
+    
+    print("Get item result: {}".format(whatsapp_table_get))
+    try:
+        whatsapp_table_get["Item"]["localeId"]
+    except KeyError:
+        whatsapp_no_item = None
+        if  whatsapp_no_item == None:
+            #put item: Creates a new item, or replaces an old item with a new item.
+            print("Create new session")
+            whatsapp_table_put = dynamodb_client.put_item(
+            TableName="test-connect-whatsapp-session",
+            Item = {
+                "SessionId": {
+                    'S': sessionId #phone[1:]
+                },
+                "localeId": {
+                    'S': chatbot_language #translate_language
+                }
+            }
+            )
+        return {
+            "isLocaleIdUpdated": False,
+            "chatbot_language": chatbot_language
+        }
     
     print("Retrieved localId: {}".format(whatsapp_table_get["Item"]["localeId"]))
     if chatbot_language == 'number':
         prev_localeId = whatsapp_table_get["Item"]["localeId"]['S']
         print("detect numeric input, localeId unchanged")
-        return prev_localeId
+        return {
+            "isLocaleIdUpdated": False,
+            "chatbot_language": prev_localeId
+        }
     elif chatbot_language != whatsapp_table_get["Item"]["localeId"]['S']:
         # Change sth here to make the sessions consistent
         whatsapp_table_put = dynamodb_client.put_item(
@@ -562,16 +704,13 @@ def checkWhatsAppSession(sessionId, chatbot_language): # get the previous locale
             }
         )
         print("Update localeId for chatbot: {}".format(chatbot_language))
-        return chatbot_language
-    else:
-        return chatbot_language
-
-def deleteWhatsAppSession(sessionId):
-    deleteResponse = dynamodb_client.delete_item(
-        TableName ='test-connect-whatsapp-session',
-        Key = {
-            "SessionId": {
-                'S': sessionId #phone[1:]
-            }
+        return {
+            "isLocaleIdUpdated": True,
+            "chatbot_language": chatbot_language
         }
-    )
+    else:
+        return {
+            "isLocaleIdUpdated": False,
+            "chatbot_language": chatbot_language
+        }
+'''
