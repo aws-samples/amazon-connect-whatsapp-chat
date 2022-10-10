@@ -1,8 +1,5 @@
 ## process whatsApp Cloud API message
 #To-Do:
-# 1. Mod chatbot confirmIntent
-# 2. Mode send_message_channel function (line 264)
-# 3. Coporate it with line 168
 from ast import Eq
 import json
 from operator import eq
@@ -80,7 +77,9 @@ def lambda_handler(event, context):
                 print("Found contact")
                 try:
                     ##Handle media content
-                    if(messageType != 'text'):
+                    if (messageType == 'button'):
+                        send_message_response = send_message(message, phone, contact['connectionToken'])
+                    elif(messageType != 'text'):
                         print("Attaching document")
                         if(fileType in SUPPORTED_FILE_TYPES):
                             print("Supported format")
@@ -97,7 +96,9 @@ def lambda_handler(event, context):
                     start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
                     start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
                     create_connection_response = create_connection(start_chat_response['ParticipantToken'])
-                    if(messageType != 'text'):
+                    if(messageType == 'button'):
+                        print("Message Type button detected, only update contact")
+                    elif(messageType != 'text'):
                         print("Attaching document")
                         if(fileType in SUPPORTED_FILE_TYPES):
                             print("Supported format")
@@ -168,7 +169,7 @@ def lambda_handler(event, context):
                         messageType = "template"
                     
                     # -------------------------------------#
-                    send_message_channel(phone,channel,message,messageType,isConfirm,chatbot_language, phone[1:], )
+                    send_message_channel(phone,channel,message,messageType,isConfirm,chatbot_language, response_lexv2)
                     if response_lexv2['sessionState']['dialogAction']['type'] == "Close":
                         deleteWhatsAppSession(phone[1:])
 
@@ -184,8 +185,9 @@ def lambda_handler(event, context):
                 
                 print("Creating Connection")
                 print(create_connection_response)
-        
-                if(messageType != 'text'):
+                if(messageType == "button"):
+                    print("Message type button, directly insert contact")
+                elif(messageType != 'text' or messageType != "button"):
                     print("Attaching document")
                     if(fileType in SUPPORTED_FILE_TYPES):
                         print("Supported format")
@@ -193,6 +195,7 @@ def lambda_handler(event, context):
                     else:
                         print("Not supported format")
                         send_message_response = send_message(fileUrl, phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
+
                 insert_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
         
 
@@ -265,7 +268,7 @@ def send_message(message, name,connectionToken):
         
     return response    
 
-def send_message_channel(userContact,channel,message, messageType,isConfirm,chatbot_language, phoneNum):
+def send_message_channel(userContact,channel,message, messageType,isConfirm,chatbot_language, textBody):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
 
     # if(chatbot_language == "zh_CN"):
@@ -295,7 +298,7 @@ def send_message_channel(userContact,channel,message, messageType,isConfirm,chat
         # Data
         if(isConfirm == True):
             data =  {"messaging_product": "whatsapp",
-                 "to": phoneNum,
+                 "to": userContact[1:],
                  "type": messageType,
                  "template": json.dumps({
                     "name": "confirmintent",
@@ -308,11 +311,11 @@ def send_message_channel(userContact,channel,message, messageType,isConfirm,chat
                             "parameters": [
                                 {
                                     "type": "text",
-                                    "text": "50000"
+                                    "text": str(textBody["sessionState"]["intent"]["slots"]["borrowedMoney"]["value"]["resolvedValues"][0])
                                 },
                                 {
                                     "type": "text",
-                                    "text": "6"
+                                    "text": str(textBody["sessionState"]["intent"]["slots"]["month"]["value"]["resolvedValues"][0])
                                 }
                             ]
                         }
@@ -330,7 +333,7 @@ def send_message_channel(userContact,channel,message, messageType,isConfirm,chat
         elif (messageType == "template"):
             data = {    
                         "messaging_product": "whatsapp",
-                        "to": phoneNum,
+                        "to": userContact[1:],
                         "type": messageType,
                         "template": json.dumps({
                             "name": "serviceoptions",
