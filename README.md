@@ -1,5 +1,5 @@
 # Amazon Connect Whatsapp Integration
-This project contains source code and supporting files for supporting whatsapp chat direct integration using WhatsApp's Cloud API or Twilio as message broker. Conversations can be escalated from chat to voice.
+This project contains source code and supporting files for supporting whatsapp chat direct integration using WhatsApp's Cloud API (using API V.14)or Twilio as message broker. Conversations can be escalated from chat to voice.
 
 ## Deployed resources
 
@@ -61,7 +61,7 @@ Twilio can be used as a broker for integrations.
 |STATUS CALLBACK URL |[ENDPOINT URL] **/twilio/callback**| 
 
 ### WhatsApp Cloud API Configuration
-WhatsApp Cloud API released in April 2022 allows direct connections. 
+WhatsApp Cloud API released in April 2022 allows direct connections. This sample code works with v14 of the API. Make sure to select that version (Settings->Advanced->Upgrade API version on your App Dashboard in the facebook developers portal)
 1. Open the applications section in the AWS console. Pick the name of the deployed application.
 2. Copy the endpoint URL and add it to the webhook WhatsApp configuration, append the path  **/cloudapi**.
 3. Specify a token to be used for verification. Make a note of it.

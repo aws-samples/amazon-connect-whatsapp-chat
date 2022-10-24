@@ -1,4 +1,5 @@
 ## process whatsApp Cloud API message
+## Updated to Whatsapp API v14
 import json
 import boto3
 import os
@@ -32,22 +33,22 @@ def lambda_handler(event, context):
             print("Iterating change")
             print(change)
             ## Skipping as no contact info was relevant.
-            if('contacts' not in change['value']['whatsapp_business_api_data']):
+            if('contacts' not in change['value']):
                 continue
             
-            systemNumber = change['value']['whatsapp_business_api_data']['phone_number_id']
-            name = change['value']['whatsapp_business_api_data']['contacts'][0]['profile']['name']
-            phone = '+' + str(change['value']['whatsapp_business_api_data']['messages'][0]['from'])
+            systemNumber = change['value']['metadata']['phone_number_id']
+            name = change['value']['contacts'][0]['profile']['name']
+            phone = '+' + str(change['value']['messages'][0]['from'])
             channel = 'whatsapp'
             ##Define message type
-            messageType = change['value']['whatsapp_business_api_data']['messages'][0]['type']
+            messageType = change['value']['messages'][0]['type']
             if(messageType == 'text'):
-                message = change['value']['whatsapp_business_api_data']['messages'][0]['text']['body']
+                message = change['value']['messages'][0]['text']['body']
             else:
                 message = 'Attachment'
-                fileType = change['value']['whatsapp_business_api_data']['messages'][0][messageType]['mime_type']
-                fileName = change['value']['whatsapp_business_api_data']['messages'][0][messageType].get('filename',phone + '.'+fileType.split("/")[1])
-                fileId = change['value']['whatsapp_business_api_data']['messages'][0][messageType]['id']
+                fileType = change['value']['messages'][0][messageType]['mime_type']
+                fileName = change['value']['messages'][0][messageType].get('filename',phone + '.'+fileType.split("/")[1])
+                fileId = change['value']['messages'][0][messageType]['id']
                 fileUrl = get_media_url(fileId,WHATS_TOKEN)
                 
                 print(fileType)
