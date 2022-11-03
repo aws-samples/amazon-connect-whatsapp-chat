@@ -40,18 +40,23 @@ def lambda_handler(event, context):
         if(message_type == 'ATTACHMENT' and message['ParticipantRole'] != 'CUSTOMER'):
             contactID = message['ContactId']
             customer = get_customer(contactID, ACTIVE_CONNNECTIONS)
-            print("Retrieved customer")
-            print(customer)
-            for attachment in message['Attachments']:
-                print("AttachmentID")
-                print(attachment['AttachmentId'])
-                attachmentId = attachment['AttachmentId']
-                attachmentName = attachment['AttachmentName']
-                contentType = attachment['ContentType']
-                presignedUrl = get_signed_url(customer['connectionToken'],attachmentId)
-                print('Presigned URL')
-                print(presignedUrl)
-                send_attachment(customer['custID'],customer['channel'],presignedUrl,attachmentName,contentType,systemNumber)
+            if(customer):
+                print("custID:" + str(customer))
+                print("Retrieved customer")
+                print(customer)
+                systemNumber = customer['systemNumber']
+                for attachment in message['Attachments']:
+                    print("AttachmentID")
+                    print(attachment['AttachmentId'])
+                    attachmentId = attachment['AttachmentId']
+                    attachmentName = attachment['AttachmentName']
+                    contentType = attachment['ContentType']
+                    presignedUrl = get_signed_url(customer['connectionToken'],attachmentId)
+                    print('Presigned URL')
+                    print(presignedUrl)
+                    send_attachment(customer['custID'],customer['channel'],presignedUrl,attachmentName,contentType,systemNumber)
+            else:
+                print('Contact not found')
         
         if(message_type == 'EVENT'):
             message_attributes = record['Sns']['MessageAttributes']
@@ -119,8 +124,14 @@ def send_message(userContact,channel,message,systemNumber):
         responsejson = response.json()
         print("Responses: "+ str(responsejson))
         
-    elif(channel=='facebook'):
-        pass;
+    elif(channel=='fbmessenger'):
+        FB_TOKEN = connect_config['FB_TOKEN']
+        URL = "https://graph.facebook.com/v13.0/"+systemNumber+"/messages?recipient=%7B'id':'"+userContact+"'%7D&messaging_type=RESPONSE&message=%7B'text':'"+message+"'%7D&access_token="+FB_TOKEN
+        print("Sending")
+        print(URL)
+        response = requests.post(URL)
+        responsejson = response.json()
+        print("Responses: "+ str(responsejson))
     else:
         pass;
 
