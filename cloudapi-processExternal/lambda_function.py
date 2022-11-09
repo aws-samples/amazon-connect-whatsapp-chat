@@ -89,7 +89,7 @@ def lambda_handler(event, context):
                     
             else:
                 print("Creating new contact")
-                start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
+                start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID) # change contact flow ID and test
                 start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
                 create_connection_response = create_connection(start_chat_response['ParticipantToken'])
                 
