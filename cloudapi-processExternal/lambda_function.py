@@ -1,21 +1,11 @@
 ## process whatsApp Cloud API message
-#To-Do:
-from ast import Eq
 import json
-from operator import eq
 import boto3
 import os
 import sys
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 import requests
-import re
-
-from aws_lambda_powertools import Logger
-from aws_lambda_powertools.logging.formatter import LambdaPowertoolsFormatter
-
-formatter = LambdaPowertoolsFormatter(utc=True, log_record_order=["message"])
-logger = Logger(service="WhatsAppCloudAPIMessage", logger_formatter=formatter)
 
 SUPPORTED_FILE_TYPES = ['text/csv','image/png','image/jpeg','application/pdf']
 ACTIVE_CONNNECTIONS= os.environ['ACTIVE_CONNNECTIONS']
@@ -25,10 +15,6 @@ CONFIG_PARAMETER= os.environ['CONFIG_PARAMETER']
 participant_client = boto3.client('connectparticipant')
 connect_client = boto3.client('connect')
 dynamodb = boto3.resource('dynamodb')
-dynamodb_client = boto3.client('dynamodb')
-lexv2_client = boto3.client('lexv2-runtime', region_name='ap-northeast-2')
-translate = boto3.client('translate')
-lexv2_model = boto3.client('lexv2-models', region_name='ap-northeast-2')
 
 def lambda_handler(event, context):
     connect_config=json.loads(get_config(CONFIG_PARAMETER))
@@ -56,11 +42,8 @@ def lambda_handler(event, context):
             channel = 'whatsapp'
             ##Define message type
             messageType = change['value']['messages'][0]['type']
-            print("message type: {}".format(messageType))
             if(messageType == 'text'):
                 message = change['value']['messages'][0]['text']['body']
-            elif (messageType == 'button'):
-                message = change['value']['messages'][0]["button"]["text"]
             else:
                 message = 'Attachment'
                 fileType = change['value']['messages'][0][messageType]['mime_type']
@@ -69,17 +52,15 @@ def lambda_handler(event, context):
                 fileUrl = get_media_url(fileId,WHATS_TOKEN)
                 
                 print(fileType)
-                        
 
-            
+            # TODOs: Put Chatbot Logic here
+
             contact = get_contact(phone, ACTIVE_CONNNECTIONS, 'custID-index')
             if(contact):
                 print("Found contact")
                 try:
                     ##Handle media content
-                    if (messageType == 'button'):
-                        send_message_response = send_message(message, phone, contact['connectionToken'])
-                    elif(messageType != 'text'):
+                    if(messageType != 'text'):
                         print("Attaching document")
                         if(fileType in SUPPORTED_FILE_TYPES):
                             print("Supported format")
@@ -96,9 +77,7 @@ def lambda_handler(event, context):
                     start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
                     start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
                     create_connection_response = create_connection(start_chat_response['ParticipantToken'])
-                    if(messageType == 'button'):
-                        print("Message Type button detected, only update contact")
-                    elif(messageType != 'text'):
+                    if(messageType != 'text'):
                         print("Attaching document")
                         if(fileType in SUPPORTED_FILE_TYPES):
                             print("Supported format")
@@ -109,75 +88,6 @@ def lambda_handler(event, context):
                     update_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
                     
             else:
-                # Detect overall what language the message is using, adding a tag to it
-                chatbot_language = identify_Language(message)
-                if chatbot_language == "number":
-                    # function: check if prev localeId exists, if not then create
-                    chatbot_language = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"]
-                    translate_language = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"].split("_")[0]
-                else:
-                    chatbot_language = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"]
-                    translate_language = chatbot_language.split("_")[0]
-                    # function: check if prev localeId exists, if not then create
-                    processed_locale = checkWhatsAppSession(phone[1:], chatbot_language)["chatbot_language"]
-                    print("Processed Locale: {}".format(processed_locale))
-
-                print("Translated Language: {}".format(translate_language))
-                print("Chatbot Language: {}".format(chatbot_language))
-            
-                
-                # Amazon Translate message to make mixed language into one
-                response_translate = translate.translate_text(
-                    Text = message,
-                    SourceLanguageCode = 'auto',
-                    TargetLanguageCode = translate_language
-                )
-
-                translated_message = response_translate['TranslatedText']
-                print(translated_message)
-
-                # Lex v2 Runtime 
-                # If zh-CN --> zh_CN ; else en
-                response_lexv2 = lexv2_client.recognize_text(
-                    botId='X4JAXPOEDV',
-                    botAliasId='KL9JK9ZBXP',
-                    localeId=chatbot_language,
-                    sessionId=phone[1:],
-                    text=translated_message,
-                )
-                intent_name = response_lexv2['sessionState']['intent']['name']
-                
-                if intent_name != 'HelpIntent':
-                    logger.info(response_lexv2)
-                    if 'messages' in response_lexv2:
-                        message = response_lexv2['messages'][0]['content'] # Chatbot response
-                    else:
-                        message = 'There seems to be an error. Please try again.'
-                    logger.info(message)
-                    # ---Decide use response card or not---#
-                    sessionState = response_lexv2['sessionState']['dialogAction']['type']
-                    isConfirm = False
-                    if sessionState == "ElicitSlot":
-                        isConfirm = False
-                        slot2Elict = response_lexv2["sessionState"]["dialogAction"]["slotToElicit"]
-                        if (slot2Elict == "serviceOptions"):
-                            messageType = "template"
-                        else:
-                            messageType = "text"
-                    elif sessionState == "ConfirmIntent":
-                        isConfirm = True
-                        messageType = "template"
-                    
-                    # -------------------------------------#
-                    send_message_channel(phone,channel,message,messageType,isConfirm,chatbot_language, response_lexv2)
-                    if response_lexv2['sessionState']['dialogAction']['type'] == "Close":
-                        deleteWhatsAppSession(phone[1:])
-
-                    return {
-                        'statusCode': 200,
-                        'body': json.dumps('All good!')
-                    }
-
                 print("Creating new contact")
                 start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
                 start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
@@ -185,9 +95,8 @@ def lambda_handler(event, context):
                 
                 print("Creating Connection")
                 print(create_connection_response)
-                if(messageType == "button"):
-                    print("Message type button, directly insert contact")
-                elif(messageType != 'text' or messageType != "button"):
+        
+                if(messageType != 'text'):
                     print("Attaching document")
                     if(fileType in SUPPORTED_FILE_TYPES):
                         print("Supported format")
@@ -195,7 +104,6 @@ def lambda_handler(event, context):
                     else:
                         print("Not supported format")
                         send_message_response = send_message(fileUrl, phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
-
                 insert_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
         
 
@@ -268,110 +176,8 @@ def send_message(message, name,connectionToken):
         
     return response    
 
-def send_message_channel(userContact,channel,message, messageType,isConfirm,chatbot_language, textBody):
-    connect_config=json.loads(get_config(CONFIG_PARAMETER))
-
-    # if(chatbot_language == "zh_CN"):
-    #     language = "zh_HK"
-    # else:
-    #     language = "en_US"
     
-    if(channel=='twilio'):
-        TWILIO_SID= connect_config['TWILIO_SID']
-        TWILIO_AUTH_TOKEN= connect_config['TWILIO_AUTH_TOKEN']
-        TWILIO_FROM_NUMBER=connect_config['TWILIO_FROM_NUMBER']
-        print("Create Twilio Client")
-        client = TwilioClient(TWILIO_SID, TWILIO_AUTH_TOKEN)
-        print("Send message:"+ str(message) + ":" + str(TWILIO_FROM_NUMBER) +":" + userContact )
-        message = client.messages.create(
-                              body=str(message),
-                              from_=TWILIO_FROM_NUMBER,
-                              to=str(userContact)
-                          )
-        print(message.sid)
-        
-    elif(channel=='whatsapp'):
-        WHATS_PHONE_ID = connect_config['WHATS_PHONE_ID']
-        WHATS_TOKEN = connect_config['WHATS_TOKEN']
-        URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
-        headers = {'Authorization': WHATS_TOKEN, 'Content-Type': 'application/json'}
-        # Data
-        if(isConfirm == True):
-            data =  {"messaging_product": "whatsapp",
-                 "to": userContact[1:],
-                 "type": messageType,
-                 "template": json.dumps({
-                    "name": "confirmintent",
-                    "language": {
-                    "code": chatbot_language
-                    },
-                    "components": [
-                        {
-                            "type": "body",
-                            "parameters": [
-                                {
-                                    "type": "text",
-                                    "text": str(textBody["sessionState"]["intent"]["slots"]["borrowedMoney"]["value"]["resolvedValues"][0])
-                                },
-                                {
-                                    "type": "text",
-                                    "text": str(textBody["sessionState"]["intent"]["slots"]["month"]["value"]["resolvedValues"][0])
-                                }
-                            ]
-                        }
-                    ]
-                })
-                 }
-
-        elif(messageType == "text"):
-            data = { 
-                "messaging_product": "whatsapp",
-                "to": normalize_phone_channel(userContact),
-                "type": "text",
-                "text": json.dumps({ "preview_url": False, "body": message})
-            }
-        elif (messageType == "template"):
-            data = {    
-                        "messaging_product": "whatsapp",
-                        "to": userContact[1:],
-                        "type": messageType,
-                        "template": json.dumps({
-                            "name": "serviceoptions",
-                            "language": {
-                            "code": chatbot_language
-                            }
-                        })
-                    }
-
-        else:
-            data = { 
-                "messaging_product": "whatsapp",
-                "to": normalize_phone_channel(userContact),
-                "type": "text",
-                "text": json.dumps({ "preview_url": False, "body": message})
-            }
-        print("Sending")
-        print(data)
-        response = requests.post(URL, headers=headers, data=data)
-        responsejson = response.json()
-        print("Responses: "+ str(responsejson))
-        
-    elif(channel=='facebook'):
-        pass;
-    else:
-        pass;
-
-def normalize_phone_channel(phone):
-    ### Country specific changes required on phone numbers
     
-    ### Mexico specific, remove 1 after 52
-    if(phone[1:3]=='52' and phone[3] == '1'):
-        normalized = phone[1:3] + phone[4:]
-    else:
-        normalized  = phone[1:]
-    return normalized
-    ### End Mexico specific
-
 def start_chat(message,phone,channel,contactFlow,connectID):
 
     start_chat_response = connect_client.start_chat_contact(
@@ -583,137 +389,3 @@ def get_whats_media(url,whatsToken):
         return response.content
     else:
         return None
-
-
-def identify_Language(message):
-    if re.search("[\u4e00-\u9FFF]", message):
-        TranslateLanguageCode = 'zh_CN'
-        return TranslateLanguageCode
-    elif re.search("[0-9]+", message):
-        TranslateLanguageCode = 'number'
-        return TranslateLanguageCode
-    else:
-        TranslateLanguageCode = 'en_US'
-        return TranslateLanguageCode
-        # change to else if show english, else return "all number ID"
-
-def checkWhatsAppSession(sessionId, chatbot_language): # get the previous localeId
-    # check if session exists
-    whatsapp_table_get = dynamodb_client.get_item(
-        TableName='test-connect-whatsapp-session',
-        Key= {
-            "SessionId": {
-                'S': sessionId #phone[1:]
-            }
-        }
-    )
-    
-    print("Get item result: {}".format(whatsapp_table_get))
-    try:
-        whatsapp_table_get["Item"]["localeId"]
-    except KeyError:
-        whatsapp_no_item = None
-        if  whatsapp_no_item == None:
-            #put item: Creates a new item, or replaces an old item with a new item.
-            print("Create new session")
-            whatsapp_table_put = dynamodb_client.put_item(
-            TableName="test-connect-whatsapp-session",
-            Item = {
-                "SessionId": {
-                    'S': sessionId #phone[1:]
-                },
-                "localeId": {
-                    'S': chatbot_language #translate_language
-                }
-            }
-            )
-        return {
-            "isLocaleIdUpdated": False,
-            "chatbot_language": chatbot_language
-        }
-    
-    print("Retrieved localId: {}".format(whatsapp_table_get["Item"]["localeId"]))
-    localeId = whatsapp_table_get["Item"]["localeId"]['S']
-    return {
-            "isLocaleIdUpdated": False,
-            "chatbot_language": localeId
-        }
-
-def deleteWhatsAppSession(sessionId):
-    deleteResponse = dynamodb_client.delete_item(
-        TableName ='test-connect-whatsapp-session',
-        Key = {
-            "SessionId": {
-                'S': sessionId #phone[1:]
-            }
-        }
-    )
-
-'''
-def checkWhatsAppSession(sessionId, chatbot_language): # get the previous localeId
-    # check if session exists
-    whatsapp_table_get = dynamodb_client.get_item(
-        TableName='test-connect-whatsapp-session',
-        Key= {
-            "SessionId": {
-                'S': sessionId #phone[1:]
-            }
-        }
-    )
-    
-    print("Get item result: {}".format(whatsapp_table_get))
-    try:
-        whatsapp_table_get["Item"]["localeId"]
-    except KeyError:
-        whatsapp_no_item = None
-        if  whatsapp_no_item == None:
-            #put item: Creates a new item, or replaces an old item with a new item.
-            print("Create new session")
-            whatsapp_table_put = dynamodb_client.put_item(
-            TableName="test-connect-whatsapp-session",
-            Item = {
-                "SessionId": {
-                    'S': sessionId #phone[1:]
-                },
-                "localeId": {
-                    'S': chatbot_language #translate_language
-                }
-            }
-            )
-        return {
-            "isLocaleIdUpdated": False,
-            "chatbot_language": chatbot_language
-        }
-    
-    print("Retrieved localId: {}".format(whatsapp_table_get["Item"]["localeId"]))
-    if chatbot_language == 'number':
-        prev_localeId = whatsapp_table_get["Item"]["localeId"]['S']
-        print("detect numeric input, localeId unchanged")
-        return {
-            "isLocaleIdUpdated": False,
-            "chatbot_language": prev_localeId
-        }
-    elif chatbot_language != whatsapp_table_get["Item"]["localeId"]['S']:
-        # Change sth here to make the sessions consistent
-        whatsapp_table_put = dynamodb_client.put_item(
-            TableName="test-connect-whatsapp-session",
-            Item = {
-                "SessionId": {
-                    'S': sessionId #phone[1:]
-                },
-                "localeId": {
-                    'S': chatbot_language #translate_language
-                }
-            }
-        )
-        print("Update localeId for chatbot: {}".format(chatbot_language))
-        return {
-            "isLocaleIdUpdated": True,
-            "chatbot_language": chatbot_language
-        }
-    else:
-        return {
-            "isLocaleIdUpdated": False,
-            "chatbot_language": chatbot_language
-        }
-'''
