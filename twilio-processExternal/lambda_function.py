@@ -25,6 +25,12 @@ def lambda_handler(event, context):
     ##Twilio specific 
     channel = 'twilio'
     message = event['Body']
+    if (message == '' and 'Label' in event):
+        message = event['Label'] + '\n'
+    if 'Address' in event:
+        message =  message + 'Address:'+ event['Address']+'\n'
+    if ('Latitude' in event and 'Longitude' in event):
+        message =  message + 'https://www.google.com/maps/search/?api=1&query='+event['Latitude']+','+event['Longitude']
     name = event['ProfileName']
     customerID = event['From']
     systemNumber = event['To']
