@@ -1,6 +1,6 @@
 # Amazon Connect Whatsapp Integration
 This project contains source code and supporting files for supporting whatsapp chat integration using Twilio as broker. Conversations can be escalated from chat to voice.
-
+<img src="whatsapp-integration-architecture.jpg">
 ## Deployed resources
 
 The project includes a cloud formation template with a Serverless Application Model (SAM) transform to deploy resources as follows:
