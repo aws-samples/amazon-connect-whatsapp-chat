@@ -6,7 +6,7 @@ Globals:
   Function:
     Timeout: 60
     MemorySize: 256
-    Runtime: python3.8
+    Runtime: python3.9
     Layers:
       - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPython:33
   Api:
@@ -25,8 +25,9 @@ Resources:
         - python3.6
         - python3.7
         - python3.8
+        - python3.9
     Metadata:
-      BuildMethod: python3.8
+      BuildMethod: python3.9
       
   ActiveConnections:
     Type: AWS::DynamoDB::Table

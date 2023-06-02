@@ -2,6 +2,7 @@
 import json
 import boto3
 import os
+import re
 import sys
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
@@ -44,6 +45,14 @@ def lambda_handler(event, context):
             messageType = change['value']['messages'][0]['type']
             if(messageType == 'text'):
                 message = change['value']['messages'][0]['text']['body']
+                print(message)
+            elif (messageType == 'button'):
+                message = change['value']['messages'][0]["button"]["text"]
+                print(message)
+            elif (messageType == 'interactive'):
+                replyType = change['value']['messages'][0]['interactive']['type']
+                message = change['value']['messages'][0]['interactive'][replyType]['id']
+                print("Interactive MSG: {}".format(message))                
             else:
                 message = 'Attachment'
                 fileType = change['value']['messages'][0][messageType]['mime_type']
@@ -52,6 +61,11 @@ def lambda_handler(event, context):
                 fileUrl = get_media_url(fileId,WHATS_TOKEN)
                 
                 print(fileType)
+                suffix = fileType.split("/")[1]
+                # add recognizeText API in here to signal Lex uploaded attachments --> 
+                fileContents = get_whats_media(fileUrl,WHATS_TOKEN)
+                upload_s3_response = upload_data_to_s3(fileContents, "welend-demo-1-bucket-317786219129", "{}/document.{}".format(phone[1:], suffix), fileType)
+                print(upload_s3_response)
 
             # TODOs: Put Chatbot Logic here
 
@@ -60,7 +74,11 @@ def lambda_handler(event, context):
                 print("Found contact")
                 try:
                     ##Handle media content
-                    if(messageType != 'text'):
+                    print(messageType)
+                    if (messageType == 'button' or messageType =='interactive'):
+                        send_message_response = send_message(message, phone, contact['connectionToken'])
+                        print(send_message_response)                  
+                    elif(messageType != 'text'):
                         print("Attaching document")
                         if(fileType in SUPPORTED_FILE_TYPES):
                             print("Supported format")
@@ -69,7 +87,9 @@ def lambda_handler(event, context):
                             print("Not supported format")
                             send_message_response = send_message(fileUrl, phone, contact['connectionToken'])
                     else:
+                        print("Amazon Conneect MSG:{}".format(message))
                         send_message_response = send_message(message, phone, contact['connectionToken'])
+                        print(send_message_response)
                 except:
                     print('Invalid Connection Token')
                     remove_contactId(contact['contactId'],ACTIVE_CONNNECTIONS)
@@ -77,7 +97,9 @@ def lambda_handler(event, context):
                     start_chat_response = start_chat(message, phone, channel,CONTACT_FLOW_ID,INSTANCE_ID)
                     start_stream_response = start_stream(INSTANCE_ID, start_chat_response['ContactId'], SNS_TOPIC)
                     create_connection_response = create_connection(start_chat_response['ParticipantToken'])
-                    if(messageType != 'text'):
+                    if(messageType == 'button' or messageType == 'interactive'):
+                        print("Message Type button detected, only update contact")                    
+                    elif(messageType != 'text'):
                         print("Attaching document")
                         if(fileType in SUPPORTED_FILE_TYPES):
                             print("Supported format")
@@ -95,8 +117,9 @@ def lambda_handler(event, context):
                 
                 print("Creating Connection")
                 print(create_connection_response)
-        
-                if(messageType != 'text'):
+                if(messageType == 'button' or messageType == 'interactive'):
+                    print("Message Type button detected, only update contact")        
+                elif(messageType != 'text'):
                     print("Attaching document")
                     if(fileType in SUPPORTED_FILE_TYPES):
                         print("Supported format")
@@ -104,6 +127,7 @@ def lambda_handler(event, context):
                     else:
                         print("Not supported format")
                         send_message_response = send_message(fileUrl, phone, create_connection_response['ConnectionCredentials']['ConnectionToken'])
+                        print(send_message_response)
                 insert_contact(phone,channel,start_chat_response['ContactId'],start_chat_response['ParticipantToken'],create_connection_response['ConnectionCredentials']['ConnectionToken'],name)
         
 
@@ -261,6 +285,7 @@ def update_contact(custID,channel,contactID,participantToken, connectionToken,na
             Key={
                 'contactId': contactID
             }, 
+            # Add language attribute here
             UpdateExpression='SET #item = :newState, #item2 = :newState2, #item3 = :newState3, #item4 = :newState4, #item5 = :newState5, #item6 = :newState6',  
             ExpressionAttributeNames={
                 '#item': 'custID',
@@ -389,3 +414,17 @@ def get_whats_media(url,whatsToken):
         return response.content
     else:
         return None
+
+def identify_Language(message):
+    if re.search("[\u4e00-\u9FFF]", message):
+        # TranslateLanguageCode = 'zh_CN'
+        TranslateLanguageCode = 'cn'
+        return TranslateLanguageCode
+    elif re.search("[0-9]+", message):
+        TranslateLanguageCode = 'number'
+        return TranslateLanguageCode
+    else:
+        # TranslateLanguageCode = 'en_US'
+        TranslateLanguageCode = 'us'
+        return 
+

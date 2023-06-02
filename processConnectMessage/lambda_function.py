@@ -59,6 +59,7 @@ def lambda_handler(event, context):
                 print('participant left')
                 contactID = message['InitialContactId']
                 remove_contactId(contactID,ACTIVE_CONNNECTIONS)
+                # implement logic that remove session + 
 
             
         
@@ -111,7 +112,21 @@ def send_message(userContact,channel,message):
         WHATS_TOKEN = connect_config['WHATS_TOKEN']
         URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
         headers = {'Authorization': WHATS_TOKEN, 'Content-Type': 'application/json'}
-        data = { "messaging_product": "whatsapp", "to": normalize_phone(userContact), "type": "text", "text": json.dumps({ "preview_url": False, "body": message}) }
+        #data = { "messaging_product": "whatsapp", "to": normalize_phone(userContact), "type": "text", "text": json.dumps({ "preview_url": False, "body": message}) }
+
+        msgJson = responseCardDecisionTree(message)
+        msgType = msgJson["payloadType"]
+        msgBody = msgJson["body"]
+
+        print("Send MSG:{}".format(msgType))
+        
+        data = {
+            "messaging_product": "whatsapp",
+            "to": normalize_phone(userContact),
+            "type": msgType,
+            msgType: msgBody
+        }
+
         print("Sending")
         print(data)
         response = requests.post(URL, headers=headers, data=data)
@@ -272,3 +287,90 @@ def get_file_category(mimeType):
     elif('image' in mimeType): return 'image' 
     elif('audio' in mimeType): return 'audio'
     elif('video' in mimeType): return 'video'
+
+
+def responseCardDecisionTree(message):
+    #message = messageBody["Content"]
+
+    if "\n* " in message:
+        message = message.split("\n* ")
+        mainMsg = message.pop(0)
+        print("Main MSG:{}".format(mainMsg))
+        responseCardArr = message
+        msgType = listORbutton(responseCardArr)
+
+        print("Message Type:{}".format(msgType))
+        msgPayload = transformResponseCard(mainMsg, responseCardArr, msgType)
+        msgPayloadType = msgPayload["payloadType"]
+        msgPayloadBody = msgPayload["body"]
+        return msgPayload
+    else:
+        msgType = "text"
+        msgPayload = json.dumps({"preview_url": False, "body": message})
+        return {
+                "payloadType": "text",
+                "body": msgPayload
+        }
+
+def listORbutton(responseCardArr):
+    if(len(responseCardArr) >3):
+        msgType = "list"
+        # Don't write more than 24 characters
+    else:
+        msgType = "button"
+    return msgType
+        
+def transformResponseCard(mainMsg, responseCardArr, msgType):
+    wtsResponseCard = []
+    if (msgType == "list"):
+        for idx in responseCardArr:
+            wtsResponseCard.append(
+                {
+                    "title": idx,
+                    "id": idx
+                }
+            )
+        print(wtsResponseCard[0])
+
+        wtsMsgBody = {
+            "type": msgType,
+            "body":{
+                    "text": mainMsg
+            }, 
+            "action":{
+                "button": "Options",
+                "sections": [
+                    {
+                        "rows": wtsResponseCard
+                    }
+                ]
+            }
+
+        }
+    else:
+        for idx in responseCardArr:
+            wtsResponseCard.append(
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": idx,
+                        "title": idx
+                    }
+                }
+            )
+        print(wtsResponseCard[0])
+
+        wtsMsgBody = {
+            "type": msgType,
+            "body":{
+                "text": mainMsg
+            },
+            "action": {
+                "buttons": wtsResponseCard
+            }
+        }
+
+    return {
+        "payloadType": "interactive",
+        "body": json.dumps(wtsMsgBody)
+    }
