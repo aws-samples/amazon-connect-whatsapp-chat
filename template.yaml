@@ -20,8 +20,8 @@ Resources:
     Properties:
       ContentUri: dependencies/
       CompatibleRuntimes:
-        - python3.6
-        - python3.7
+        - python3.10
+        - python3.9
         - python3.8
     Metadata:
       BuildMethod: python3.8
