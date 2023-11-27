@@ -154,8 +154,8 @@ def send_attachment(userContact,channel,url,fileName,mimeType,systemNumber):
         print(message.sid)
     elif(channel=='whatsapp'):
         WHATS_PHONE_ID = connect_config['WHATS_PHONE_ID']
-        WHATS_TOKEN = connect_config['WHATS_TOKEN']
-        URL = 'https://graph.facebook.com/v13.0/'+WHATS_PHONE_ID+'/messages'
+        WHATS_TOKEN = 'Bearer ' + connect_config['WHATS_TOKEN']
+        URL = 'https://graph.facebook.com/v13.0/'+systemNumber+'/messages'
         headers = {'Authorization': WHATS_TOKEN}
         fileType = get_file_category(mimeType)
         data = {
